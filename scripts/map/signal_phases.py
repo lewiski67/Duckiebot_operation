@@ -13,8 +13,8 @@ default_phase_group = {
     (300, 317): [12],
     (300, 310): [12],
     (300, 311): [12],
-    (302, 315): [11], # right west to south
-    (302, 319): [11], # straight west to west
+    (302, 315): [11,12], # right west to south
+    (302, 319): [11], # straight west to east
     (303, 319): None, # reserved for future use
     (303, 317): [11], # straight west to east
     (304, 323): [14], # left west to north
@@ -23,9 +23,9 @@ default_phase_group = {
     (305, 310): [13],
     (305, 311): [13],
     (305, 315): [13],
-    (307, 323): [11], # right east to north
-    (307, 310): [11], # straight east to east
-    (308, 311): [11], # straight east to east
+    (307, 323): [11,13], # right east to north
+    (307, 310): [11], # straight east to west
+    (308, 311): [11], # straight east to west
     (309, 315): [14],
     # West Intersection, phase number 2x
     (310, 325): [22],
@@ -41,7 +41,7 @@ default_phase_group = {
     (313, 304): [21],
     # South Intersection, phase number 3x
     (314, 313): [31],
-    (314, 300): [31,32],
+    (314, 300): [31,32,33],
     (315, 313): [32,33,34],
     (315, 330): [33],
     (316, 330): [32,34],
@@ -53,16 +53,16 @@ default_phase_group = {
     (318, 308): [41],
     (318, 307): [41],
     (319, 314): [41,42],
-    (321, 314): [43],
-    (321, 307): [43],
-    (321, 308): [43],
+    (321, 314): [42,43],
+    (321, 307): [42,43],
+    (321, 308): [42,43],
     (321, 309): [43],
     # North intersection, phase number 5x
-    (323, 321): [52],
+    (323, 321): [52,53,54],
     (323, 312): [53],
-    (325, 321): [51,53],
-    (325, 305): [51],
-    (333, 312): [51],
+    (325, 321): [51],
+    (325, 305): [51,53,54],
+    (333, 312): [54],
     (333, 305): [52],
 
     # Special cases
