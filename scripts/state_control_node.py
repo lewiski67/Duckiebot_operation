@@ -125,7 +125,7 @@ class ACCController:
 class StateControlNode:
 
    # this is now hard coded for VPA testbed 
-    START_TAG_ID    = 330
+    START_TAG_ID    = 332
     END_TAG_ID      = 331
 
     def __init__(self):
@@ -133,13 +133,14 @@ class StateControlNode:
         rospy.init_node('state_control_node')
         self.robot_name = socket.gethostname()
 
+        self.debug_switch = False
         self.motion_state = MotionState.IDLE
         # Velocity command subscribers
         # We mux between following a lane (lf) or trajectory (tf)
         self.cmd_vel_lf = Twist()
         self.cmd_vel_tf = Twist()
-        rospy.Subscriber('cmd_vel_lf', Twist, self.cmd_vel_lf_callback)
-        rospy.Subscriber('cmd_vel_tf', Twist, self.cmd_vel_tf_callback)
+        rospy.Subscriber('cmd_vel_lf', Twist, self.cmd_vel_lf_callback, queue_size=1)
+        rospy.Subscriber('cmd_vel_tf', Twist, self.cmd_vel_tf_callback, queue_size=1)
 
         self.cmd_vel_pub = rospy.Publisher('cmd_vel', Twist, queue_size=1)
 
@@ -160,9 +161,10 @@ class StateControlNode:
         self.green_phases       = []
         rospy.Subscriber('/green_phases', Int32MultiArray, self.signal_callback) # this topic is a list containing which phase groups are green
 
+        self.tag_detect_timeout = int(3/0.05)
         self.detect_id = None
         self.return_to_end_id = False
-        self.last_detected_id_time = rospy.Time.now()
+        self.last_detected_id_time = None
         rospy.Subscriber('perception/detected_tag_id', Int32, self.detected_tag_callback)
 
         self.traj_od_pub = rospy.Publisher('start_end_id', Int32MultiArray, queue_size=1)
@@ -218,17 +220,30 @@ class StateControlNode:
         #  this is called when the stop_lanefollowing flag is set
         if self.motion_state == MotionState.WAIT_SIGNAL:
             # we need this only when waiting for a signal
-            dt = (self.last_detected_id_time - self.near_stop_line_time).to_sec()
-            if abs(dt) >= 3:
-                # this is most likely an invalid reading as the id is not detected right after near stop line
-                self.next_id = None
-                self.motion_state = MotionState.LOST
-                self.traffic_signal_ok = False
-                self.detect_id = None
+            if self.last_detected_id_time is None:
+                # this is first time we are checking after near stop line
+                # and very likely the id is not detected yet
+                # wait for it
+                return
+            if self.last_detected_id_time < self.near_stop_line_time:
+                # this means the last detected id is before we are near stop line
+                # wait for a new detection
+                self.tag_detect_timeout -= 1
+                if self.tag_detect_timeout <= 0:
+                    rospy.logwarn(f"[StateControlNode] Detected ID timeout after near stop line. Resetting detected ID.")
+                    self.next_id = None
+                    self.motion_state = MotionState.LOST
+                    self.traffic_signal_ok = False
+                    self.detect_id = None
+                return
 
             if self.detect_id is not None:
                 # we have a recently detected id
                 # we need to check which what is our destination id and then we know which phase group it belongs to 
+                self.tag_detect_timeout = int(3/0.05) # reset timeout
+                if self.task_manager.current_task_state == TaskState.NOT_ASSIGNED:
+                    rospy.logwarn(f"[StateControlNode] No task assigned while checking traffic signal. Assuming red signal.")
+                    return
                 self.next_id = self.task_manager.update_task_state(self.detect_id)
                 self.phase_num_list = get_phase_group_number(self.detect_id, self.next_id)
                 if self.phase_num_list is None:
@@ -249,7 +264,10 @@ class StateControlNode:
             self.stop_trajectoryfollowing = False
             # inform trajectory following node
             self.start_end_id_msg = Int32MultiArray()
-            self.start_end_id_msg.data = [self.detect_id, self.next_id]
+            if type(self.next_id) is list:
+                self.start_end_id_msg.data = [self.detect_id, self.next_id[0]]
+            else:
+                self.start_end_id_msg.data = [self.detect_id, self.next_id]
             self.traj_od_pub.publish(self.start_end_id_msg)
             self.odom_reset_pub.publish(Bool(data=True)) # this will set ODOM
             # we assume now the trajectory following node will take over
@@ -265,11 +283,11 @@ class StateControlNode:
                     self.motion_state = MotionState.IDLE
                     self.return_to_end_id = False
                     self.local_brake = True # software lock
-                if self.stop_lanefollowing and self.traffic_signal_ok:
-                    self.motion_state = MotionState.TRAJECTORY_FOLLOWING
-                    rospy.loginfo(f"[StateControlNode] From LF Transitioning to TRAJECTORY_FOLLOWING state.")
-                    self.prepare_for_trajectory()
-                elif self.stop_lanefollowing and not self.traffic_signal_ok:
+                # if self.stop_lanefollowing and self.traffic_signal_ok:
+                #     self.motion_state = MotionState.TRAJECTORY_FOLLOWING
+                #     rospy.loginfo(f"[StateControlNode] From LF Transitioning to TRAJECTORY_FOLLOWING state.")
+                #     self.prepare_for_trajectory()
+                elif self.stop_lanefollowing:
                     self.motion_state = MotionState.WAIT_SIGNAL
                     rospy.loginfo(f"[StateControlNode] From LF Transitioning to WAIT_SIGNAL state.")
                 else:
@@ -283,12 +301,13 @@ class StateControlNode:
                     self.motion_state = MotionState.WAIT_SIGNAL
             elif self.motion_state == MotionState.TRAJECTORY_FOLLOWING:
                 if self.stop_trajectoryfollowing:
-                    self.stop_lanefollowing = False 
+                    self.stop_lanefollowing = False
+                    self.odom_reset_pub.publish(Bool(data=False))  # reset ODOM
                     self.motion_state = MotionState.LANE_FOLLOWING
                     rospy.loginfo(f"[StateControlNode] From TF Transitioning to LANE_FOLLOWING state.")
             elif self.motion_state == MotionState.LOST:
                 if not hasattr(self, '_lost_state_logged'):
-                    rospy.loginfo(f"[StateControlNode] LOST state: Unable to confirm next ID. Returning to LANE_FOLLOWING.")
+                    rospy.loginfo(f"[StateControlNode] LOST state")
                     self._lost_state_logged = True
         else:
             # True or 'braking' meaning stop all motion
@@ -320,7 +339,6 @@ class StateControlNode:
 
         # Publish the final cmd_vel
         self.cmd_vel_pub.publish(cmd)
-
         
 
 if __name__ == '__main__':

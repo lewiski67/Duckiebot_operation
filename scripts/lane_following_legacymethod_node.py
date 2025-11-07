@@ -55,6 +55,7 @@ class LaneFollowingNode:
             self.last_center_x = None  # reset last center x when entering intersection
             rospy.loginfo(f"{self.robot_name}: [Lane_Follow Node INFO] Entering intersection, resetting last_center_x.")
         else:
+            self.last_center_x = None
             rospy.loginfo(f"{self.robot_name}: [Lane_Follow Node INFO] Exiting intersection.")
 
     def local_brake_callback(self, msg):
@@ -143,6 +144,7 @@ class LaneFollowingNode:
             self.cmd_pub.publish(cmd_pub)
         else:
             # this is a bad lane, use the last command
+            print("Bad lane detected, using last command")
             self.cmd_pub.publish(self.cmd_last)
 
 
