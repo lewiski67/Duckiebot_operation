@@ -141,12 +141,14 @@ class StateControlNode:
         rospy.Subscriber('cmd_vel_lf', Twist, self.cmd_vel_lf_callback)
         rospy.Subscriber('cmd_vel_tf', Twist, self.cmd_vel_tf_callback)
 
+        self.cmd_vel_pub = rospy.Publisher('cmd_vel', Twist, queue_size=1)
+
 
         self.task_manager = TaskManager()
 
 
-        self.global_brake       = False
-        self.local_brake        = False
+        self.global_brake       = True
+        self.local_brake        = True
         self.global_brake_sub   = rospy.Subscriber('/global_brake', Bool, self.global_brake_callback)
         self.local_brake_sub    = rospy.Subscriber('local_brake', Bool, self.local_brake_callback)
 
@@ -265,14 +267,17 @@ class StateControlNode:
                     self.local_brake = True # software lock
                 if self.stop_lanefollowing and self.traffic_signal_ok:
                     self.motion_state = MotionState.TRAJECTORY_FOLLOWING
+                    rospy.loginfo(f"[StateControlNode] From LF Transitioning to TRAJECTORY_FOLLOWING state.")
                     self.prepare_for_trajectory()
                 elif self.stop_lanefollowing and not self.traffic_signal_ok:
                     self.motion_state = MotionState.WAIT_SIGNAL
+                    rospy.loginfo(f"[StateControlNode] From LF Transitioning to WAIT_SIGNAL state.")
                 else:
                     self.motion_state = MotionState.LANE_FOLLOWING
             elif self.motion_state == MotionState.WAIT_SIGNAL:
                 if self.traffic_signal_ok:
                     self.motion_state = MotionState.TRAJECTORY_FOLLOWING
+                    rospy.loginfo(f"[StateControlNode] From WAIT_SIGNAL Transitioning to TRAJECTORY_FOLLOWING state.")
                     self.prepare_for_trajectory()
                 else:
                     self.motion_state = MotionState.WAIT_SIGNAL
@@ -280,8 +285,11 @@ class StateControlNode:
                 if self.stop_trajectoryfollowing:
                     self.stop_lanefollowing = False 
                     self.motion_state = MotionState.LANE_FOLLOWING
+                    rospy.loginfo(f"[StateControlNode] From TF Transitioning to LANE_FOLLOWING state.")
             elif self.motion_state == MotionState.LOST:
-                rospy.loginfo(f"[StateControlNode] LOST state: Unable to confirm next ID. Returning to LANE_FOLLOWING.")
+                if not hasattr(self, '_lost_state_logged'):
+                    rospy.loginfo(f"[StateControlNode] LOST state: Unable to confirm next ID. Returning to LANE_FOLLOWING.")
+                    self._lost_state_logged = True
         else:
             # True or 'braking' meaning stop all motion
             self.motion_state = MotionState.IDLE
@@ -309,6 +317,10 @@ class StateControlNode:
                 self.speed_factor = 0 # deadband
             cmd.linear.x *= self.speed_factor
             cmd.angular.z *= self.speed_factor
+
+        # Publish the final cmd_vel
+        self.cmd_vel_pub.publish(cmd)
+
         
 
 if __name__ == '__main__':
