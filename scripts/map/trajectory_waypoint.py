@@ -87,30 +87,30 @@ except ImportError:
     print("No fine tuning map found, use default")
     find_tuning_traj = {}
 
-phase_group = {
-    0: [332], # entry, this is the virtual signal for entry, so the entering car does not hit the car on main lane
-    1: [302,303,317,319,308,307,310,311,323,315,313,313,321,325,314], # this phase main inter go straight from e <--> w and its down stream also green.
-    2: [304,309,323,315,312,318], # left turn for main inter e<-->w, and its down stream also green
-    3: [300,316],
-    4: [333,305],
-    100: [330] # exit, always green for now, we sometimes need to red this so no car hit the entering car
-}
+# phase_group = {
+#     0: [332], # entry, this is the virtual signal for entry, so the entering car does not hit the car on main lane
+#     1: [302,303,317,319,308,307,310,311,323,315,313,313,321,325,314], # this phase main inter go straight from e <--> w and its down stream also green.
+#     2: [304,309,323,315,312,318], # left turn for main inter e<-->w, and its down stream also green
+#     3: [300,316],
+#     4: [333,305],
+#     100: [330] # exit, always green for now, we sometimes need to red this so no car hit the entering car
+# }
 
 def get_trajectory_waypoints(start_id, end_id):
     if (start_id, end_id) in find_tuning_traj.keys():
         return find_tuning_traj[(start_id, end_id)]
     return map_id.get((start_id, end_id), [])
 
-def possible_goals(start_id):
-    goals = []
-    for (s, e) in map_id.keys():
-        if s == start_id:
-            goals.append(e)
-    return goals
+# def possible_goals(start_id):
+#     goals = []
+#     for (s, e) in map_id.keys():
+#         if s == start_id:
+#             goals.append(e)
+#     return goals
 
-def get_phase_group(start_id):
-    # so far the lane should only be discharged in one phase, even they have multiple possible goals
-    for pg, tags in phase_group.items():
-        if start_id in tags:
-            return pg
-    return -1
+# def get_phase_group(start_id):
+#     # so far the lane should only be discharged in one phase, even they have multiple possible goals
+#     for pg, tags in phase_group.items():
+#         if start_id in tags:
+#             return pg
+#     return -1

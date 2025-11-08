@@ -72,7 +72,7 @@ class TaskManager:
                         rospy.logwarn("[TaskManager] Loop path is empty. Switching to EXIT_PATH.")
                         self.current_task_state = TaskState.EXIT_PATH
                         return self.update_task_state(id_reached)  # Recursive call for exit path
-                    return [self.loop_path[0]]  # First tag in loop path
+                    return [self.loop_path[1]]  # First tag in loop path
                 else:
                     return [self.entry_path[idx + 1]]
 
@@ -93,7 +93,7 @@ class TaskManager:
                             rospy.logwarn("[TaskManager] Exit path is empty. Switching to NOT_ASSIGNED.")
                             self.current_task_state = TaskState.NOT_ASSIGNED
                             return []
-                        return [self.exit_path[0]]  # First tag in exit path
+                        return [self.exit_path[1]]  # First tag in exit path
                 else:
                     return [self.loop_path[idx + 1]]
 
@@ -163,6 +163,7 @@ class StateControlNode:
 
         self.tag_detect_timeout = int(3/0.05)
         self.detect_id = None
+        self.next_id   = None
         self.return_to_end_id = False
         self.last_detected_id_time = None
         rospy.Subscriber('perception/detected_tag_id', Int32, self.detected_tag_callback)
@@ -178,7 +179,16 @@ class StateControlNode:
         self.acccontroller = ACCController(desired_gap=self.acc_gap)
         
         rospy.Timer(rospy.Duration(0.05), self.timer_callback) # main loop at 20Hz
-    
+
+        self.lf_to_ws_lock = False  # Lock to prevent LF -> WS transition immediately after TF -> LF
+
+        self.lf_to_ws_lock_timer = None
+
+    # Timer to release the LF -> WS lock
+    def release_lf_to_ws_lock(self,event):
+        self.lf_to_ws_lock = False
+        rospy.loginfo("[StateControlNode] LF -> WS lock released.")
+
     def cur_traj_finished_callback(self, msg):
         if self.motion_state == MotionState.TRAJECTORY_FOLLOWING and msg.data:
             self.stop_trajectoryfollowing = msg.data # true 
@@ -188,11 +198,17 @@ class StateControlNode:
         self.last_detected_id_time = rospy.Time.now()
         if self.detect_id == self.START_TAG_ID:
             self.task_manager.request_task()
+            self.next_id = self.task_manager.update_task_state(self.detect_id)
+            rospy.loginfo(f"[StateControlNode] Detected ID: {self.detect_id}, Next ID: {self.next_id[0]}")
         elif self.detect_id == self.END_TAG_ID and self.motion_state == MotionState.LANE_FOLLOWING:
             rospy.loginfo(f"[StateControlNode] Reached END_TAG_ID: {self.END_TAG_ID}. Resetting task manager.")
             self.stop_lanefollowing = False 
             self.task_manager.clear_task()
-            self.return_to_end_id = True    
+            self.return_to_end_id = True
+        else:
+            # we call update task state only here
+            self.next_id = self.task_manager.update_task_state(self.detect_id)
+            rospy.loginfo(f"[StateControlNode] Detected ID: {self.detect_id}, Next ID: {self.next_id[0]}")
 
     def signal_callback(self, msg):
         # Check if our robot's ID is in the green phases
@@ -212,6 +228,8 @@ class StateControlNode:
 
     def near_stop_callback(self, msg):
         if not self.stop_lanefollowing and msg.data:
+            if self.lf_to_ws_lock:
+                return # ignore in case of lock
             self.stop_lanefollowing = True
             self.near_stop_line_time = rospy.Time.now()
             # this is when we set the flag to stop lanefollowing
@@ -224,8 +242,8 @@ class StateControlNode:
                 # this is first time we are checking after near stop line
                 # and very likely the id is not detected yet
                 # wait for it
-                return
-            if self.last_detected_id_time < self.near_stop_line_time:
+            #     return
+            # if self.last_detected_id_time < self.near_stop_line_time:
                 # this means the last detected id is before we are near stop line
                 # wait for a new detection
                 self.tag_detect_timeout -= 1
@@ -235,6 +253,7 @@ class StateControlNode:
                     self.motion_state = MotionState.LOST
                     self.traffic_signal_ok = False
                     self.detect_id = None
+                rospy.loginfo(f"[StateControlNode] Waiting for tag detection after near stop line. Timeout in {self.tag_detect_timeout*0.05:.2f} seconds.")
                 return
 
             if self.detect_id is not None:
@@ -244,7 +263,10 @@ class StateControlNode:
                 if self.task_manager.current_task_state == TaskState.NOT_ASSIGNED:
                     rospy.logwarn(f"[StateControlNode] No task assigned while checking traffic signal. Assuming red signal.")
                     return
-                self.next_id = self.task_manager.update_task_state(self.detect_id)
+                if self.next_id is None:
+                    rospy.logwarn(f"[StateControlNode] No next ID while checking traffic signal. Assuming red signal.")
+                    self.traffic_signal_ok = False
+                    return
                 self.phase_num_list = get_phase_group_number(self.detect_id, self.next_id)
                 if self.phase_num_list is None:
                     self.traffic_signal_ok = False
@@ -253,6 +275,8 @@ class StateControlNode:
                 for phase in self.phase_num_list:
                     if phase in self.green_phases:
                         self.traffic_signal_ok = True
+                        rospy.loginfo(f"[StateControlNode] Current green phases: {self.green_phases}")
+                        rospy.loginfo(f"[StateControlNode] Traffic signal OK for phase: {phase}")
                         break
             else:
                 self.next_id = None
@@ -293,7 +317,7 @@ class StateControlNode:
                 else:
                     self.motion_state = MotionState.LANE_FOLLOWING
             elif self.motion_state == MotionState.WAIT_SIGNAL:
-                if self.traffic_signal_ok:
+                if self.traffic_signal_ok and self.detect_id is not None:
                     self.motion_state = MotionState.TRAJECTORY_FOLLOWING
                     rospy.loginfo(f"[StateControlNode] From WAIT_SIGNAL Transitioning to TRAJECTORY_FOLLOWING state.")
                     self.prepare_for_trajectory()
@@ -301,10 +325,18 @@ class StateControlNode:
                     self.motion_state = MotionState.WAIT_SIGNAL
             elif self.motion_state == MotionState.TRAJECTORY_FOLLOWING:
                 if self.stop_trajectoryfollowing:
-                    self.stop_lanefollowing = False
+                    
                     self.odom_reset_pub.publish(Bool(data=False))  # reset ODOM
                     self.motion_state = MotionState.LANE_FOLLOWING
                     rospy.loginfo(f"[StateControlNode] From TF Transitioning to LANE_FOLLOWING state.")
+                    self.detect_id = None
+                    self.last_detected_id_time = None  
+                    # Set LF -> WS lock and start timer to release it
+                    self.lf_to_ws_lock = True
+                    if self.lf_to_ws_lock_timer:
+                        self.lf_to_ws_lock_timer.shutdown()
+                    self.lf_to_ws_lock_timer = rospy.Timer(rospy.Duration(1), self.release_lf_to_ws_lock, oneshot=True)
+                    self.stop_lanefollowing = False
             elif self.motion_state == MotionState.LOST:
                 if not hasattr(self, '_lost_state_logged'):
                     rospy.loginfo(f"[StateControlNode] LOST state")
