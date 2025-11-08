@@ -271,7 +271,7 @@ class StateControlNode:
                 if self.phase_num_list is None:
                     self.traffic_signal_ok = False
                     rospy.logwarn(f"[StateControlNode] No phase group found for IDs: ({self.detect_id}, {self.next_id}). Assuming red signal.")
-
+                self.traffic_signal_ok = False
                 for phase in self.phase_num_list:
                     if phase in self.green_phases:
                         self.traffic_signal_ok = True
