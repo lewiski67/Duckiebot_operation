@@ -77,7 +77,6 @@ def get_phase_group_number(from_id, to_id):
     if type(to_id) is list:
         to_id = to_id[0]
     key = (from_id, to_id)
-    print(f"Getting phase group for key: {key}")
     if key in default_phase_group.keys():
         return default_phase_group[key]
     else:

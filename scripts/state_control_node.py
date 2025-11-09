@@ -164,7 +164,7 @@ class StateControlNode:
         self.tag_detect_timeout = int(3/0.05)
         self.detect_id = None
         self.next_id   = None
-        self.return_to_end_id = False
+        # self.return_to_end_id = False
         self.last_detected_id_time = None
         rospy.Subscriber('perception/detected_tag_id', Int32, self.detected_tag_callback)
 
@@ -194,21 +194,30 @@ class StateControlNode:
             self.stop_trajectoryfollowing = msg.data # true 
 
     def detected_tag_callback(self, msg):
+        if msg.data == self.detect_id:
+            return  # Ignore duplicate detections of the same ID
         self.detect_id = msg.data
         self.last_detected_id_time = rospy.Time.now()
         if self.detect_id == self.START_TAG_ID:
             self.task_manager.request_task()
             self.next_id = self.task_manager.update_task_state(self.detect_id)
             rospy.loginfo(f"[StateControlNode] Detected ID: {self.detect_id}, Next ID: {self.next_id[0]}")
-        elif self.detect_id == self.END_TAG_ID and self.motion_state == MotionState.LANE_FOLLOWING:
+        elif self.detect_id == self.END_TAG_ID:
+            print('-----------------------------')
             rospy.loginfo(f"[StateControlNode] Reached END_TAG_ID: {self.END_TAG_ID}. Resetting task manager.")
+            print('-----------------------------')
+            self.local_brake = True # software lock
             self.stop_lanefollowing = False 
             self.task_manager.clear_task()
-            self.return_to_end_id = True
+            # self.return_to_end_id = True
+            self.motion_state = MotionState.IDLE
         else:
             # we call update task state only here
             self.next_id = self.task_manager.update_task_state(self.detect_id)
-            rospy.loginfo(f"[StateControlNode] Detected ID: {self.detect_id}, Next ID: {self.next_id[0]}")
+            try:
+                rospy.loginfo(f"[StateControlNode] Detected ID: {self.detect_id}, Next ID: {self.next_id[0]}")
+            except Exception as e:
+                rospy.logwarn(f"[StateControlNode] Error logging detected ID: {e}")
 
     def signal_callback(self, msg):
         # Check if our robot's ID is in the green phases
@@ -230,6 +239,8 @@ class StateControlNode:
         if not self.stop_lanefollowing and msg.data:
             if self.lf_to_ws_lock:
                 return # ignore in case of lock
+            if self.motion_state != MotionState.LANE_FOLLOWING:
+                return # only care when in LF state
             self.stop_lanefollowing = True
             self.near_stop_line_time = rospy.Time.now()
             # this is when we set the flag to stop lanefollowing
@@ -254,6 +265,7 @@ class StateControlNode:
                     self.traffic_signal_ok = False
                     self.detect_id = None
                 rospy.loginfo(f"[StateControlNode] Waiting for tag detection after near stop line. Timeout in {self.tag_detect_timeout*0.05:.2f} seconds.")
+                self.traffic_signal_ok = False
                 return
 
             if self.detect_id is not None:
@@ -261,12 +273,24 @@ class StateControlNode:
                 # we need to check which what is our destination id and then we know which phase group it belongs to 
                 self.tag_detect_timeout = int(3/0.05) # reset timeout
                 if self.task_manager.current_task_state == TaskState.NOT_ASSIGNED:
-                    rospy.logwarn(f"[StateControlNode] No task assigned while checking traffic signal. Assuming red signal.")
+                    if not hasattr(self, '_no_task_assigned_logged'):
+                        rospy.logwarn(f"[StateControlNode] No task assigned while checking traffic signal. Assuming red signal.")
+                        self._no_task_assigned_logged = True
+                        
                     return
                 if self.next_id is None:
                     rospy.logwarn(f"[StateControlNode] No next ID while checking traffic signal. Assuming red signal.")
                     self.traffic_signal_ok = False
                     return
+                else:
+                    if type(self.next_id) is list:
+                        if self.next_id[0] == self.detect_id:
+                            # we have not get the next id assigned yet
+                            self.traffic_signal_ok = False
+                            return 
+                    elif self.next_id == self.detect_id:
+                        self.traffic_signal_ok = False
+                        return
                 self.phase_num_list = get_phase_group_number(self.detect_id, self.next_id)
                 if self.phase_num_list is None:
                     self.traffic_signal_ok = False
@@ -303,15 +327,11 @@ class StateControlNode:
                 # Transition logic from IDLE to LANE_FOLLOWING
                 self.motion_state = MotionState.LANE_FOLLOWING
             elif self.motion_state == MotionState.LANE_FOLLOWING:
-                if self.return_to_end_id:
-                    self.motion_state = MotionState.IDLE
-                    self.return_to_end_id = False
-                    self.local_brake = True # software lock
                 # if self.stop_lanefollowing and self.traffic_signal_ok:
                 #     self.motion_state = MotionState.TRAJECTORY_FOLLOWING
                 #     rospy.loginfo(f"[StateControlNode] From LF Transitioning to TRAJECTORY_FOLLOWING state.")
                 #     self.prepare_for_trajectory()
-                elif self.stop_lanefollowing:
+                if self.stop_lanefollowing:
                     self.motion_state = MotionState.WAIT_SIGNAL
                     rospy.loginfo(f"[StateControlNode] From LF Transitioning to WAIT_SIGNAL state.")
                 else:
