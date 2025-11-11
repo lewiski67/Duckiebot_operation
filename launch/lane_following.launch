@@ -14,6 +14,7 @@
         <include file="$(find vpa_robot_perception)/launch/vpa_lane_operation.launch">
             <arg name="publish_result" value="$(arg publish_image)"/>
             <arg name="tag_debug" value="$(arg publish_tag_debug)"/>
+            <arg name="disable_tag_detection" value="$(arg ignore_stop_lines)"/>
         </include>
         <node pkg="vpa_robot_operation" type="lane_following_legacymethod_node.py" name="lane_following" output="screen">
             <param name="free_follow_speed" value="$(arg free_follow_speed)"/>
