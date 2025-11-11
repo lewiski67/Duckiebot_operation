@@ -1,4 +1,10 @@
 <launch>
-    <include file="$(find vpa_robot_operation)/launch/lane_following.launch"/>
-    <include file="$(find vpa_robot_operation)/launch/inter_operation.launch"/>
+<!-- Launch lane following and intersection operation nodes -->
+    <arg name="lane_follow_only" default="false"/>
+    <include file="$(find vpa_robot_operation)/launch/lane_following.launch">
+        <arg name="ignore_stop_lines" value="$(arg lane_follow_only)"/>
+    </include>
+    <group if="$(eval not arg('lane_follow_only'))">
+        <include file="$(find vpa_robot_operation)/launch/inter_operation.launch"/>
+    </group>
 </launch>
