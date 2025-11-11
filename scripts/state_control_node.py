@@ -154,6 +154,7 @@ class StateControlNode:
         self.local_brake_sub    = rospy.Subscriber('local_brake', Bool, self.local_brake_callback)
 
         self.stop_lanefollowing = False
+        self.ignore_stoplines = rospy.get_param('~ignore_stop_lines', False)
         self.near_stop_line_time = rospy.Time.now()
         rospy.Subscriber('perception/near_stop_line', Bool, self.near_stop_callback)
 
@@ -236,6 +237,8 @@ class StateControlNode:
         self.cmd_vel_tf = msg
 
     def near_stop_callback(self, msg):
+        if self.ignore_stoplines:
+            return # not reacting to stop lines, loop in lane follow mode
         if not self.stop_lanefollowing and msg.data:
             if self.lf_to_ws_lock:
                 return # ignore in case of lock
