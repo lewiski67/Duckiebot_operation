@@ -25,7 +25,7 @@ class TrajFollowingNode:
         self.start_id   = None
         self.end_id     = None
         self.traj       = []
-
+        self.free_follow_speed = rospy.get_param('~free_follow_speed', 0.3)
         self.log_when_err = []
         self.true_cmd = Twist()
         self.true_cmd_sub = rospy.Subscriber('cmd_vel', Twist, self.true_cmd_callback)
@@ -97,7 +97,7 @@ class TrajFollowingNode:
 
     def compute_twist(self, x_meas, y_meas, theta_meas, x_ref, y_ref, theta_ref):
         # ---- fixed params for smooth turning ----
-        vf_ref      = 0.30          # max forward speed (m/s)
+        vf_ref      = self.free_follow_speed # max forward speed (m/s)
         v_min_move  = 0.08          # minimum to overcome deadband (only when facing forward)
         stop_enter  = 0.05          # stop radius (m)
         near_scale  = 0.10          # start tapering v within this range (m)

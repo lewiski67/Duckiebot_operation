@@ -2,7 +2,7 @@
 
 import rospy
 from geometry_msgs.msg import Twist
-from std_msgs.msg import Int32MultiArray, Bool
+from std_msgs.msg import Int32MultiArray, Bool, Float32
 from controller.PID_control import PIDController
 import socket
 from dynamic_reconfigure.server import Server
@@ -24,6 +24,8 @@ class LaneFollowingNode:
         self.free_follow_speed = rospy.get_param('~free_follow_speed', 0.3)
         
         rospy.Subscriber('perception/lane_info', Int32MultiArray, self.lane_callback)
+
+        rospy.Subscriber('freeflowspd', Float32, self.freeflowspd_callback)
 
         self.kp = rospy.get_param('~kp', 0.02)
         self.ki = rospy.get_param('~ki', 0.0)
@@ -47,6 +49,10 @@ class LaneFollowingNode:
         self.pid_controller.kd = self.kd
         rospy.loginfo(f"{self.robot_name}: Reconfigured PID parameters: kp={self.kp}, ki={self.ki}, kd={self.kd}")
         return config
+
+    def freeflowspd_callback(self, msg):
+        self.free_follow_speed = msg.data
+        rospy.loginfo(f"{self.robot_name}: [Lane_Follow Node INFO] Updated free follow speed to {self.free_follow_speed}")
 
     def reset_callback(self, msg):
         # when in intersection data will be true
