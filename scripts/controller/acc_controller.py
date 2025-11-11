@@ -1,7 +1,7 @@
 def acc_controller(dis_ref, dis_meas,
-                   dead_band=0.1,   # m: ok if we're ≥10cm farther than ref
-                   slow_zone=0.10,   # m: how much "too close" maps to full stop
-                   z_stop=0.15,      # m: hard stop threshold
+                   dead_band=0.20,   # m: ok if we're ≥20cm farther than ref
+                   slow_zone=0.20,   # m: how much "too close" maps to full stop
+                   z_stop=0.1,      # m: hard stop threshold
                    min_factor=0.0):  # floor (e.g., 0.05 for crawl)
     """
     Pure function. Returns throttle scale in [0,1].
