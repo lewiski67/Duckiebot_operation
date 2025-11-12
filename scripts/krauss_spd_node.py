@@ -20,7 +20,7 @@ import time
 import rospy
 from std_msgs.msg import Float32
 from geometry_msgs.msg import Twist
-from vpa_robot_interface.msg import WheelEncoder
+from vpa_robot_interface.msg import WheelsEncoder
 
 class KraussSpeedController(object):
     def __init__(self):
@@ -28,14 +28,16 @@ class KraussSpeedController(object):
         self.rate_hz    = rospy.get_param("~rate_hz", 20.0)     # control rate (Hz)
         self.v_max      = rospy.get_param("~v_max", 0.3)        # free-flow speed (m/s)
         self.accel_a    = rospy.get_param("~a", 0.6)            # accel cap (m/s^2)
-        self.decel_b    = rospy.get_param("~b", 0.5)            # comfortable decel bound (m/s^2)
-        self.min_gap    = rospy.get_param("~min_gap", 0.10)     # bumper clearance (m)
+        self.decel_b    = rospy.get_param("~b", 0.2)            # comfortable decel bound (m/s^2)
+        self.min_gap    = rospy.get_param("~min_gap", 0.1)     # bumper clearance (m)
         self.stop_gap   = rospy.get_param("~z_stop", 0.10)      # hard stop threshold (m)
         # must match ACCLeadNode so sentinel semantics align:
         self.z_min      = rospy.get_param("~z_min", 0.04)       # min valid distance (m)
         self.z_max      = rospy.get_param("~z_max", 1.2)        # max valid distance (m)
         self.vlead_alpha= rospy.get_param("~vlead_alpha", 0.25) # LPF for inferred leader speed (0..1)
 
+        self.b_model    = rospy.get_param("~b_model", 0.03)      # model decel for Krauss calc (m/s^2)
+        self.tau     = rospy.get_param("~tau", 0.05)          # reaction time for Krauss calc (s)    
         # --- State ---
         self.v_meas   = 0.0
         self.lead_d   = None
@@ -49,7 +51,7 @@ class KraussSpeedController(object):
         self.radius = 0.0318
 
         # --- ROS I/O ---
-        rospy.Subscriber("wheel_omega", WheelEncoder, self.cb_speed, queue_size=1)
+        rospy.Subscriber("wheel_omega", WheelsEncoder, self.cb_speed, queue_size=1)
         rospy.Subscriber("perception/lead_car_distance", Float32, self.cb_lead_dist, queue_size=1)
         self.pub_twist = rospy.Publisher("cmd_vel_acc", Twist, queue_size=1)
         self.pub_vset  = rospy.Publisher("v_setpoint", Float32, queue_size=1)
@@ -59,7 +61,7 @@ class KraussSpeedController(object):
 
     # --- Callbacks ---
     def cb_speed(self, msg):
-        self.v_meas = (msg.left_wheel_omega + msg.right_wheel_omega) * 0.5 * self.radius
+        self.v_meas = (msg.omega_left + msg.omega_right) * 0.5 * self.radius
 
     def cb_lead_dist(self, msg):
         self.lead_d = float(msg.data)
@@ -87,11 +89,13 @@ class KraussSpeedController(object):
         self.t_prev = now
 
         # Require at least one distance read; otherwise decay toward 0 gently
+        # in the coding of this script, it will be feed with 1.6 when robot visually found no car ahead
         if self.lead_d is None:
             v_next = max(0.0, self.v_last - self.decel_b * dt)
             self._publish_speed(v_next)
             self.v_last = v_next
             return
+
 
         # Case A: NO LEADER (free flow). Sentinel: d > z_max
         if not self.lead_valid:
@@ -125,33 +129,34 @@ class KraussSpeedController(object):
             self.v_last = v_next
             return
 
-        # Derivative and inferred leader speed
+        # try caculate v_safe
+        # Estimate leader speed from gap derivative
         g_dot = (g - self.g_prev) / dt
+        v_lead_inst = self.v_meas + g_dot
+        # Low-pass filter
+        self.v_lead = (1.0 - self.vlead_alpha) * self.v_lead + self.vlead_alpha * v_lead_inst
         self.g_prev = g
-        v_lead_raw = g_dot + self.v_meas
-        # clamp leader speed to plausible bounds
-        v_lead_raw = max(0.0, min(self.v_max, v_lead_raw))
-        # low-pass filter
-        self.v_lead = self.vlead_alpha * v_lead_raw + (1.0 - self.vlead_alpha) * self.v_lead
 
-        # Krauss safe speed
-        term = g - self.v_meas * dt
-        R = self.v_lead ** 2 + 4.0 * self.decel_b * term
-        if R < 0.0:
-            R = 0.0
-        denom = self.v_lead + math.sqrt(R)
-        denom = max(1e-6, denom)  # guard small denom
-        v_safe = self.v_lead + (2.0 * self.decel_b * term) / denom
-        v_safe = max(0.0, v_safe)
+        if abs(self.v_lead) < 0.02:
+            self.v_lead = 0.0 # we assume stopped if very slow
+        
+        # Krauss safe speed calculation
+        v_lead_eff = max(0.0, self.v_lead)  # only consider forward speed
 
-        # Candidate next speed with accel cap and comfortable decel cap
-        v_acc_cap = self.v_meas + self.accel_a * dt
-        v_dec_cap = self.v_meas - self.decel_b * dt
-        v_cand = min(self.v_max, v_acc_cap, v_safe)
-        v_next = max(v_dec_cap, v_cand)   # avoid braking harder than b
+        temp = self.b_model * self.tau
+        gap_proj = max(0.0, g - self.v_meas * self.tau - self.min_gap)   # project ego motion over τ
+        inside = temp*temp + v_lead_eff*v_lead_eff + 2.0*self.b_model*gap_proj
+        v_safe = -temp + math.sqrt(inside)
+        v_next = min(v_safe, self.v_max, self.v_meas + self.accel_a * dt)
+        v_next = max(0, v_next)
+
         # Hard stop if extremely close
         if self.lead_d < self.stop_gap:
             v_next = 0.0
+        else:
+            if gap_proj > 0.01:
+                # print(f"[KraussSPD] gap_proj={gap_proj:.3f} v_lead={v_lead_eff:.3f} v_safe={v_safe:.3f} v_next={v_next:.3f}")
+                pass
 
         v_next = max(0.0, v_next)
         self._publish_speed(v_next)
