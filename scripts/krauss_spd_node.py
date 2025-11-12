@@ -27,7 +27,7 @@ class KraussSpeedController(object):
         # --- Parameters ---
         self.rate_hz    = rospy.get_param("~rate_hz", 20.0)     # control rate (Hz)
         self.v_max      = rospy.get_param("~v_max", 0.3)        # free-flow speed (m/s)
-        self.accel_a    = rospy.get_param("~a", 0.6)            # accel cap (m/s^2)
+        self.accel_a    = rospy.get_param("~a", 1)            # accel cap (m/s^2)
         self.decel_b    = rospy.get_param("~b", 0.2)            # comfortable decel bound (m/s^2)
         self.min_gap    = rospy.get_param("~min_gap", 0.1)     # bumper clearance (m)
         self.stop_gap   = rospy.get_param("~z_stop", 0.10)      # hard stop threshold (m)
@@ -112,6 +112,7 @@ class KraussSpeedController(object):
             v_dec_cap = self.v_meas - self.decel_b * dt
             v_next = min(self.v_max, v_acc_cap)
             v_next = max(v_dec_cap, v_next)  # apply decel comfort
+            v_next = min(self.v_max, v_next)
             v_next = max(0.0, v_next)
             self._publish_speed(v_next)
             self.v_last = v_next
