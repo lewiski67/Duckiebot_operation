@@ -388,7 +388,9 @@ class StateControlNode:
             cmd.linear.x = max(0.0, self.cmd_vel_acc.linear.x)  # prevent reversing
             if self.collision_risk_stop:
                 cmd.linear.x = 0.0
-                rospy.loginfo("[StateControlNode] Collision risk detected. Stopping the robot.")
+                if not hasattr(self, '_collision_logged'):
+                    rospy.loginfo("[StateControlNode] Collision risk detected. Stopping the robot.")
+                    self._collision_logged = True
 
         # Publish the final cmd_vel
         self.cmd_vel_pub.publish(cmd)
