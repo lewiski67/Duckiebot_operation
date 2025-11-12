@@ -2,6 +2,7 @@
 import sys
 import rospy
 from geometry_msgs.msg import Twist
+from sensor_msgs.msg import Range
 from std_msgs.msg import Bool,Int32MultiArray, Int32, Float32
 from enum import Enum, auto
 from vpa_robot_operation.srv import AssignTask 
@@ -172,10 +173,11 @@ class StateControlNode:
         self.lf_to_ws_lock_timer = None
 
         self.collision_risk_stop = False
-        rospy.Subscriber("perception/lead_car_distance", Float32, self.cb_lead_dist, queue_size=1)
+        rospy.Subscriber("front_range", Range, self.cb_lead_dist, queue_size=1)
+        
 
     def cb_lead_dist(self, msg):
-        distance = float(msg.data)
+        distance = msg.range
         if distance < 0.05:  # threshold for collision risk
             self.collision_risk_stop = True
         else:
