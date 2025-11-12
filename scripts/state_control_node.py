@@ -171,6 +171,15 @@ class StateControlNode:
 
         self.lf_to_ws_lock_timer = None
 
+        self.collision_risk_stop = False
+        rospy.Subscriber("perception/lead_car_distance", Float32, self.cb_lead_dist, queue_size=1)
+
+    def cb_lead_dist(self, msg):
+        distance = float(msg.data)
+        if distance < 0.05:  # threshold for collision risk
+            self.collision_risk_stop = True
+        else:
+            self.collision_risk_stop = False
 
     def cmd_vel_acc_callback(self, msg):
         self.cmd_vel_acc = msg
@@ -375,6 +384,9 @@ class StateControlNode:
 
         if self.motion_state in [MotionState.LANE_FOLLOWING, MotionState.TRAJECTORY_FOLLOWING]:
             cmd.linear.x = max(0.0, self.cmd_vel_acc.linear.x)  # prevent reversing
+            if self.collision_risk_stop:
+                cmd.linear.x = 0.0
+                rospy.loginfo("[StateControlNode] Collision risk detected. Stopping the robot.")
 
         # Publish the final cmd_vel
         self.cmd_vel_pub.publish(cmd)
