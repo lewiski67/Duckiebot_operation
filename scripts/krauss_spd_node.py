@@ -50,6 +50,8 @@ class KraussSpeedController(object):
 
         self.radius = 0.0318
 
+        rospy.Subscriber('freeflowspd', Float32, self.freeflowspd_callback)
+
         # --- ROS I/O ---
         rospy.Subscriber("wheel_omega", WheelsEncoder, self.cb_speed, queue_size=1)
         rospy.Subscriber("perception/lead_car_distance", Float32, self.cb_lead_dist, queue_size=1)
@@ -66,7 +68,8 @@ class KraussSpeedController(object):
     def cb_lead_dist(self, msg):
         self.lead_d = float(msg.data)
         self.prev_lead_valid, self.lead_valid = self.lead_valid, (self.lead_d <= self.z_max)
-
+    def freeflowspd_callback(self, msg):
+        self.v_max = float(msg.data)
     # --- Helpers ---
     def _publish_speed(self, v):
         tw = Twist()
