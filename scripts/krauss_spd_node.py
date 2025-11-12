@@ -98,7 +98,11 @@ class KraussSpeedController(object):
             self._publish_speed(v_next)
             self.v_last = v_next
             return
-
+        
+        if self.lead_d > self.z_max:
+            self.lead_valid = False
+        else:
+            self.lead_valid = True
 
         # Case A: NO LEADER (free flow). Sentinel: d > z_max
         if not self.lead_valid:
