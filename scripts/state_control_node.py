@@ -109,18 +109,6 @@ class TaskManager:
 
         rospy.logwarn("[TaskManager] ID not found in current path. No state update.")
         return []
-from controller.acc_controller import acc_controller 
-class ACCController:
-    def __init__(self, desired_gap=0.2):
-        self.desired_gap = desired_gap
-        self.current_gap = 1.5 # default large gap
-        self.car_front_sub = rospy.Subscriber('perception/lead_car_distance', Float32, self.lead_car_distance_callback)
-
-    def lead_car_distance_callback(self, msg):
-        self.current_gap = msg.data
-    
-    def compute_spd_factor(self):
-        return acc_controller(self.desired_gap, self.current_gap)
     
 class StateControlNode:
 
@@ -139,9 +127,11 @@ class StateControlNode:
         # We mux between following a lane (lf) or trajectory (tf)
         self.cmd_vel_lf = Twist()
         self.cmd_vel_tf = Twist()
+        self.cmd_vel_acc = Twist()
         rospy.Subscriber('cmd_vel_lf', Twist, self.cmd_vel_lf_callback, queue_size=1)
         rospy.Subscriber('cmd_vel_tf', Twist, self.cmd_vel_tf_callback, queue_size=1)
-
+        rospy.Subscriber('cmd_vel_acc', Twist, self.cmd_vel_acc_callback, queue_size=1)
+        
         self.cmd_vel_pub = rospy.Publisher('cmd_vel', Twist, queue_size=1)
 
 
@@ -174,10 +164,6 @@ class StateControlNode:
 
         self.stop_trajectoryfollowing = True
         rospy.Subscriber('cur_traj_finished', Bool, self.cur_traj_finished_callback)
-
-        self.speed_factor = 1
-        self.acc_gap      = rospy.get_param('~acc_desired_gap', 0.2)
-        self.acccontroller = ACCController(desired_gap=self.acc_gap)
         
         rospy.Timer(rospy.Duration(0.05), self.timer_callback) # main loop at 20Hz
 
@@ -185,6 +171,9 @@ class StateControlNode:
 
         self.lf_to_ws_lock_timer = None
 
+
+    def cmd_vel_acc_callback(self, msg):
+        self.cmd_vel_acc = msg
     # Timer to release the LF -> WS lock
     def release_lf_to_ws_lock(self,event):
         self.lf_to_ws_lock = False
@@ -385,12 +374,7 @@ class StateControlNode:
             cmd = Twist()  # default to zero velocity
 
         if self.motion_state in [MotionState.LANE_FOLLOWING, MotionState.TRAJECTORY_FOLLOWING]:
-            # Apply ACC speed factor
-            self.speed_factor = self.acccontroller.compute_spd_factor()
-            if self.speed_factor < 0.1:
-                self.speed_factor = 0 # deadband
-            cmd.linear.x *= self.speed_factor
-            cmd.angular.z *= self.speed_factor
+            cmd.linear.x = max(0.0, self.cmd_vel_acc.linear.x)  # prevent reversing
 
         # Publish the final cmd_vel
         self.cmd_vel_pub.publish(cmd)
