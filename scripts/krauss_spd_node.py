@@ -33,7 +33,7 @@ class KraussSpeedController(object):
         self.stop_gap   = rospy.get_param("~z_stop", 0.10)      # hard stop threshold (m)
         # must match ACCLeadNode so sentinel semantics align:
         self.z_min      = rospy.get_param("~z_min", 0.04)       # min valid distance (m)
-        self.z_max      = rospy.get_param("~z_max", 1.2)        # max valid distance (m)
+        self.z_max      = rospy.get_param("~z_max", 1)        # max valid distance (m)
         self.vlead_alpha= rospy.get_param("~vlead_alpha", 0.25) # LPF for inferred leader speed (0..1)
 
         self.b_model    = rospy.get_param("~b_model", 0.2)      # model decel for Krauss calc (m/s^2)
@@ -49,6 +49,13 @@ class KraussSpeedController(object):
         self.t_prev   = None
 
         self.radius = 0.0318
+
+        self.allow_catch_up = False
+        self.desired_gap    = 0.5
+
+        self.allow_catch_up = rospy.get_param("~allow_catch_up", False)
+        self.desired_gap    = rospy.get_param("~desired_gap", 0.5)
+        # this is for the formation control so that we can let the following vehicle approach the leader, it will turn off before the Krauss model actually engages
 
         rospy.Subscriber('freeflowspd', Float32, self.freeflowspd_callback)
 
@@ -99,13 +106,29 @@ class KraussSpeedController(object):
             self.v_last = v_next
             return
         
+
         if self.lead_d > self.z_max:
             self.lead_valid = False
+            if self.allow_catch_up  and self.lead_d > self.desired_gap:
+                v_next = 1.2 * self.v_max
+                    # v_next = min(v_next, self.v_meas + self.accel_a * dt)
+                v_next = max(0.0, v_next)
+                self._publish_speed(v_next)
+                self.v_last = v_next
+                return
         else:
+            if self.allow_catch_up  and self.lead_d > self.desired_gap:
+                v_next = 1.2 * self.v_max
+                # v_next = min(v_next, self.v_meas + self.accel_a * dt)
+                v_next = max(0.0, v_next)
+                self._publish_speed(v_next)
+                self.v_last = v_next
+                return
             self.lead_valid = True
 
         # Case A: NO LEADER (free flow). Sentinel: d > z_max
         if not self.lead_valid:
+            # this is effective not in use if allow_catch_up is set to true
             # Free-accel toward v_max with cap a
             v_acc_cap = self.v_meas + self.accel_a * dt
             # Optional comfortable decel cap to avoid sudden drops after sensor flips
