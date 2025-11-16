@@ -36,7 +36,7 @@ class KraussSpeedController(object):
         self.z_max      = rospy.get_param("~z_max", 1.2)        # max valid distance (m)
         self.vlead_alpha= rospy.get_param("~vlead_alpha", 0.25) # LPF for inferred leader speed (0..1)
 
-        self.b_model    = rospy.get_param("~b_model", 0.03)      # model decel for Krauss calc (m/s^2)
+        self.b_model    = rospy.get_param("~b_model", 0.2)      # model decel for Krauss calc (m/s^2)
         self.tau     = rospy.get_param("~tau", 0.05)          # reaction time for Krauss calc (s)    
         # --- State ---
         self.v_meas   = 0.0
