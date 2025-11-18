@@ -49,6 +49,7 @@ class KraussSpeedController(object):
         self.t_prev   = None
 
         self.radius = 0.0318
+        self.wheel_base = 0.1
 
         self.allow_catch_up = False
 
@@ -92,7 +93,7 @@ class KraussSpeedController(object):
     # --- Callbacks ---
     def cb_speed(self, msg):
         self.v_meas = (msg.omega_left + msg.omega_right) * 0.5 * self.radius
-        self.w_meas = (msg.omega_right - msg.omega_left) * self.radius / msg.wheel_base # this is used for estimating if we are turning
+        self.w_meas = (msg.omega_right - msg.omega_left) * self.radius / self.wheel_base # this is used for estimating if we are turning
 
         if abs(self.w_meas) > 0.3:  # rad/s threshold for turning
             self.is_turning = True
