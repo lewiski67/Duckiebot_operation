@@ -27,17 +27,17 @@ class KraussSpeedController(object):
         # --- Parameters ---
         self.rate_hz    = rospy.get_param("~rate_hz", 20.0)     # control rate (Hz)
         self.v_max      = rospy.get_param("~v_max", 0.3)        # free-flow speed (m/s)
-        self.accel_a    = rospy.get_param("~a", 1)            # accel cap (m/s^2)
+        self.accel_a    = rospy.get_param("~a", 1)              # accel cap (m/s^2)
         self.decel_b    = rospy.get_param("~b", 0.2)            # comfortable decel bound (m/s^2)
-        self.min_gap    = rospy.get_param("~min_gap", 0.1)     # bumper clearance (m)
+        self.min_gap    = rospy.get_param("~min_gap", 0.1)      # bumper clearance (m)
         self.stop_gap   = rospy.get_param("~z_stop", 0.10)      # hard stop threshold (m)
         # must match ACCLeadNode so sentinel semantics align:
         self.z_min      = rospy.get_param("~z_min", 0.04)       # min valid distance (m)
-        self.z_max      = rospy.get_param("~z_max", 1)        # max valid distance (m)
+        self.z_max      = rospy.get_param("~z_max", 1)          # max valid distance (m)
         self.vlead_alpha= rospy.get_param("~vlead_alpha", 0.25) # LPF for inferred leader speed (0..1)
 
         self.b_model    = rospy.get_param("~b_model", 0.2)      # model decel for Krauss calc (m/s^2)
-        self.tau     = rospy.get_param("~tau", 0.05)          # reaction time for Krauss calc (s)    
+        self.tau     = rospy.get_param("~tau", 0.05)            # reaction time for Krauss calc (s)    
         # --- State ---
         self.v_meas   = 0.0
         self.lead_d   = None
@@ -51,10 +51,31 @@ class KraussSpeedController(object):
         self.radius = 0.0318
 
         self.allow_catch_up = False
-        self.desired_gap    = 0.5
+
+        self.is_turning = False
 
         self.allow_catch_up = rospy.get_param("~allow_catch_up", False)
         self.desired_gap    = rospy.get_param("~desired_gap", 0.5)
+
+
+        # check when v_safe will reduce
+
+        # we know that v_safe = -b*tau + sqrt((b*tau)^2 + v_lead.^2 + 2*b.*(g - g_min));
+        # now we set v_safte = v_max, and solve for g
+        v_safe_reduce_distance = ( (self.v_max + self.b_model * self.tau)**2 - (self.b_model * self.tau)**2 ) / (2.0 * self.b_model) + self.min_gap
+        rospy.loginfo(f"[KraussSPD] v_safe will reduce when lead car is closer than {v_safe_reduce_distance:.3f} m")
+        # if distance smaller than this, we slow down due to krauss model, and therfore we cant keep a distance smaller than this
+        # the idea is that we catch up while staying in free flow region, not catch up while the krasus model is countering the catch up
+
+        if self.desired_gap < v_safe_reduce_distance:
+            rospy.logwarn(f"[KraussSPD] desired_gap {self.desired_gap:.3f} m is smaller than v_safe reduce distance {v_safe_reduce_distance:.3f} m")
+            self.desired_gap = v_safe_reduce_distance
+            rospy.logwarn(f"[KraussSPD] desired_gap set to {self.desired_gap:.3f} m")
+        if self.desired_gap > 0.7:
+            rospy.logwarn(f"[KraussSPD] desired_gap {self.desired_gap:.3f} m is quite large, the local TOF sensor may not be able to see the lead car")
+            self.allow_catch_up = False
+            rospy.logwarn(f"[KraussSPD] allow_catch_up set to False")
+
         # this is for the formation control so that we can let the following vehicle approach the leader, it will turn off before the Krauss model actually engages
 
         rospy.Subscriber('freeflowspd', Float32, self.freeflowspd_callback)
@@ -71,6 +92,12 @@ class KraussSpeedController(object):
     # --- Callbacks ---
     def cb_speed(self, msg):
         self.v_meas = (msg.omega_left + msg.omega_right) * 0.5 * self.radius
+        self.w_meas = (msg.omega_right - msg.omega_left) * self.radius / msg.wheel_base # this is used for estimating if we are turning
+
+        if abs(self.w_meas) > 0.3:  # rad/s threshold for turning
+            self.is_turning = True
+        else:
+            self.is_turning = False
 
     def cb_lead_dist(self, msg):
         self.lead_d = float(msg.data)
@@ -109,7 +136,7 @@ class KraussSpeedController(object):
 
         if self.lead_d > self.z_max:
             self.lead_valid = False
-            if self.allow_catch_up  and self.lead_d > self.desired_gap:
+            if self.allow_catch_up  and self.lead_d > self.desired_gap and not self.is_turning:
                 v_next = 1.2 * self.v_max
                     # v_next = min(v_next, self.v_meas + self.accel_a * dt)
                 v_next = max(0.0, v_next)
@@ -117,7 +144,7 @@ class KraussSpeedController(object):
                 self.v_last = v_next
                 return
         else:
-            if self.allow_catch_up  and self.lead_d > self.desired_gap:
+            if self.allow_catch_up  and self.lead_d > self.desired_gap and not self.is_turning:
                 v_next = 1.2 * self.v_max
                 # v_next = min(v_next, self.v_meas + self.accel_a * dt)
                 v_next = max(0.0, v_next)
