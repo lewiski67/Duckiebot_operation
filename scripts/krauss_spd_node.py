@@ -29,8 +29,8 @@ class KraussSpeedController(object):
         self.v_max      = rospy.get_param("~v_max", 0.3)        # free-flow speed (m/s)
         self.accel_a    = rospy.get_param("~a", 1)              # accel cap (m/s^2)
         self.decel_b    = rospy.get_param("~b", 0.2)            # comfortable decel bound (m/s^2)
-        self.min_gap    = rospy.get_param("~min_gap", 0.1)      # bumper clearance (m)
-        self.stop_gap   = rospy.get_param("~z_stop", 0.05)      # hard stop threshold (m)
+        self.min_gap    = rospy.get_param("~min_gap", 0.15)      # bumper clearance (m)
+        self.stop_gap   = rospy.get_param("~z_stop", 0.15)      # hard stop threshold (m)
         # must match ACCLeadNode so sentinel semantics align:
         self.z_min      = rospy.get_param("~z_min", 0.1)       # min valid distance (m)
         self.z_max      = rospy.get_param("~z_max", 1)          # max valid distance (m)
@@ -57,29 +57,30 @@ class KraussSpeedController(object):
 
         self.allow_catch_up = rospy.get_param("~allow_catch_up", False)
         
-        self.desired_gap    = rospy.get_param("~desired_gap", 0.5) 
+        self.desired_gap_headway    = rospy.get_param("~desired_gap", 0.5) 
         # desired gap for formation control (m), this is headway distance, not bumper to bumper distan
+        self.desired_gap = self.desired_gap_headway - self.car_length  # convert to bumper to bumper distance
 
         # check when v_safe will reduce
 
         # we know that v_safe = -b*tau + sqrt((b*tau)^2 + v_lead.^2 + 2*b.*(g - g_min));
         # now we set v_safte = v_max, and solve for g
-        self.d_safe_reduce = ( (self.v_max + self.b_model * self.tau)**2 - (self.b_model * self.tau)**2 ) / (2.0 * self.b_model) + self.min_gap
-        rospy.loginfo(f"[KraussSPD] v_safe will reduce when lead car is closer than {self.d_safe_reduce:.3f} m")
+        # self.d_safe_reduce = ( (self.v_max + self.b_model * self.tau)**2 - (self.b_model * self.tau)**2 ) / (2.0 * self.b_model) + self.min_gap
+        # rospy.loginfo(f"[KraussSPD] v_safe will reduce when lead car is closer than {self.d_safe_reduce:.3f} m")
 
-        # calcaute the v_safe when at 90% of d_safe_reduce
-        g_90pct = self.d_safe_reduce * 0.9
-        inside_90pct = (self.b_model * self.tau)**2 + 0.0 + 2.0 * self.b_model * (g_90pct - self.min_gap)
-        self.v_safe_90pct = -self.b_model * self.tau + math.sqrt(inside_90pct)
-        rospy.loginfo(f"[KraussSPD] at 90% of d_safe_reduce, v_safe = {self.v_safe_90pct:.3f} m/s")
+        # # calcaute the v_safe when at 90% of d_safe_reduce
+        # g_90pct = self.d_safe_reduce * 0.9
+        # inside_90pct = (self.b_model * self.tau)**2 + 0.0 + 2.0 * self.b_model * (g_90pct - self.min_gap)
+        # self.v_safe_90pct = -self.b_model * self.tau + math.sqrt(inside_90pct)
+        # rospy.loginfo(f"[KraussSPD] at 90% of d_safe_reduce, v_safe = {self.v_safe_90pct:.3f} m/s")
 
         # this is for the formation control so that we can let the following vehicle approach the leader, it will turn off before the Krauss model actually engage
 
-        if self.d_safe_reduce > self.desired_gap:
-            # not gonna work
-            rospy.logwarn(f"[KraussSPD] desired_gap {self.desired_gap:.3f} m is smaller than d_safe_reduce {self.d_safe_reduce:.3f} m, formation control may not work as expected")
-            # signal shutdown
-            rospy.signal_shutdown("Invalid parameters for formation control")
+        # if self.d_safe_reduce > self.desired_gap:
+        #     # not gonna work
+        #     rospy.logwarn(f"[KraussSPD] desired_gap {self.desired_gap:.3f} m is smaller than d_safe_reduce {self.d_safe_reduce:.3f} m, formation control may not work as expected")
+        #     # signal shutdown
+        #     rospy.signal_shutdown("Invalid parameters for formation control")
         
 
         rospy.Subscriber('freeflowspd', Float32, self.freeflowspd_callback)
@@ -119,31 +120,55 @@ class KraussSpeedController(object):
     def gap_keeping_speed(self,gap):
         # the gap is bumper to bumper distance
         if self.allow_catch_up and not self.is_turning:
+            v_safe = self.safe_speed(gap, self.v_lead)
+            if abs(v_safe - self.v_max) < 0.01:
+                # we are in free flow regime
+                # now it means we can try to catch up to desired gap
+                # somedebug
 
-            if gap >= self.desired_gap:
                 error = gap - self.desired_gap
-                v_cmd = self.v_max + 0.5 * error  # simple P control
+                v_cmd = self.v_max + 0.7 * error  # simple P control
                 v_cmd = min(1.2 * self.v_max, v_cmd)  # cap at 120% of v_max
-                return v_cmd
-            elif gap < self.desired_gap and gap > self.d_safe_reduce:
-                error = gap - self.desired_gap
-                v_cmd = self.v_max + 1 * error  # simple P control toward v_safe at 90% d_safe_reduce
-                # do not go below v_safe at 90% d_safe_reduce
-                v_cmd = max(self.v_safe_90pct, v_cmd)
+                v_cmd = max(0.8 * self.v_max, v_cmd)  # cap at 80% of v_max
                 return v_cmd
             else:
-                # use krauss safe speed calculation
-                return self.safe_speed(gap, self.v_lead)
-        elif not self.is_turning:
+                return v_safe
+
+            # if gap >= self.desired_gap:
+            #     error = gap - self.desired_gap
+            #     v_cmd = self.v_max + 0.5 * error  # simple P control
+            #     v_cmd = min(1.2 * self.v_max, v_cmd)  # cap at 120% of v_max
+            #     return v_cmd
+            # elif gap < self.desired_gap and gap > self.d_safe_reduce:
+            #     error = gap - self.desired_gap
+            #     v_cmd = self.v_max + 1 * error  # simple P control toward v_safe at 90% d_safe_reduce
+            #     # do not go below v_safe at 90% d_safe_reduce
+            #     v_cmd = max(self.v_safe_90pct, v_cmd)
+            #     print("gap: ", gap)
+            #     print("v_cmd during catch up: ", v_cmd)
+            #     return v_cmd
+            # else:
+
+            #     # use krauss safe speed calculation
+            #     v_cmd = self.safe_speed(gap, self.v_lead)
+            #     print("gap: ", gap)
+            #     print("using krauss safe speed", v_cmd)
+            #     return v_cmd
+        elif self.is_turning:
+            # if we turning , the range is problematic sometimes
+            if gap >= self.z_max:
+                # this is bascially no detection of lead car
+                return 0.9 * self.v_max # we slightly under v_max to avoid oscillation
             return self.safe_speed(gap, self.v_lead)
         else:
-            return None
+            # we not turning but we also have to gap to keep
+            return self.safe_speed(gap, self.v_lead)
 
     def safe_speed(self, g, v_lead):
         inside = (self.b_model * self.tau)**2 + v_lead**2 + 2.0 * self.b_model * (g - self.min_gap)
         inside = max(0.0, inside)
         v_safe = -self.b_model * self.tau + math.sqrt(inside)
-        
+        v_safe = min(v_safe, self.v_max)   
         return max(0.0, v_safe)
 
     # --- Main step ---
@@ -185,18 +210,11 @@ class KraussSpeedController(object):
         self.v_lead = max(0.0, self.v_lead)  # only consider forward speed
 
         v_next = self.gap_keeping_speed(g)
-
-        if v_next is None:
-            # we are turning, just hold last speed
-            v_next = self.v_last
-            self._publish_speed(v_next)
-            return
         
         # Apply acceleration / deceleration limits
         if v_next > self.v_last:
             v_next = min(v_next, self.v_last + self.accel_a * dt)
-        else:
-            v_next = max(v_next, self.v_last - self.decel_b * dt)
+        # no cap on deceleration
         # Enforce speed limit
         v_next = min(v_next, self.v_max * 1.4)
         v_next = max(0.0, v_next) 
