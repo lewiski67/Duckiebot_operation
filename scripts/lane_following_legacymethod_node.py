@@ -150,7 +150,7 @@ class LaneFollowingNode:
             self.cmd_pub.publish(cmd_pub)
         else:
             # this is a bad lane, use the last command
-            print("Bad lane detected, using last command")
+            # print("Bad lane detected, using last command")
             self.cmd_pub.publish(self.cmd_last)
 
 
