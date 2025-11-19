@@ -48,7 +48,7 @@ class KraussSpeedController(object):
 
         self.radius = 0.0318
         self.wheel_base = 0.1
-        self.car_length = 0.23  # car length from head to tail, used to calculate min gap
+        self.car_length = 0.18  # car length from head to tail, used to calculate min gap
         self.steer_thresh = 0.4
 
         self.allow_catch_up = False
