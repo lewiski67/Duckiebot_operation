@@ -129,7 +129,7 @@ class KraussSpeedController(object):
                 error = gap - self.desired_gap
                 v_cmd = self.v_max + 0.7 * error  # simple P control
                 v_cmd = min(1.2 * self.v_max, v_cmd)  # cap at 120% of v_max
-                v_cmd = max(0.8 * self.v_max, v_cmd)  # cap at 80% of v_max
+                v_cmd = max(0.7 * self.v_max, v_cmd)  # cap at 80% of v_max
                 return v_cmd
             else:
                 return v_safe
