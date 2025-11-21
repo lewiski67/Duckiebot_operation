@@ -50,7 +50,7 @@ class KraussSpeedController(object):
         self.wheel_base = 0.1
         self.car_length = 0.18  # car length from head to tail, used to calculate min gap
         self.steer_thresh = 0.4
-
+        self.turn_counter = 0
         self.allow_catch_up = False
 
         self.is_turning = False
@@ -100,8 +100,14 @@ class KraussSpeedController(object):
         self.w_meas = (msg.omega_right - msg.omega_left) * self.radius / self.wheel_base # this is used for estimating if we are turning
 
         if abs(self.w_meas) > self.steer_thresh:  # rad/s threshold for turning
-            self.is_turning = True
+            self.turn_counter += 1
+            if self.turn_counter >= 5:  # require 3 consecutive turning readings to set flag
+            
+                self.is_turning = True
+            else:
+                self.is_turning = False
         else:
+            self.turn_counter = 0
             self.is_turning = False
 
     def cb_lead_dist(self, msg):
