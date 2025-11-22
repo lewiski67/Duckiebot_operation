@@ -91,8 +91,8 @@ class KraussSpeedController(object):
         self.pub_twist = rospy.Publisher("cmd_vel_acc", Twist, queue_size=1)
         self.pub_vset  = rospy.Publisher("v_setpoint", Float32, queue_size=1)
 
-        rospy.loginfo("[krauss_speed_controller] Initialized with v_max=%.3f a=%.3f b=%.3f z_min=%.2f z_max=%.2f",
-                      self.v_max, self.accel_a, self.decel_b, self.z_min, self.z_max)
+        rospy.loginfo("[krauss_speed_controller] Initialized with v_max=%.3f a=%.3f b=%.3f tau=%.2f z_min=%.2f z_max=%.2f",
+                      self.v_max, self.accel_a, self.b_model, self.tau, self.z_min, self.z_max)
 
     # --- Callbacks ---
     def cb_speed(self, msg):
