@@ -194,6 +194,8 @@ class KraussSpeedController(object):
         # in the coding of this script, it will be feed with 1.6 when robot visually found no car ahead
         if self.lead_d is None:
             v_next = max(0.0, self.v_last - self.decel_b * dt)
+            v_next = min(v_next, self.v_last + self.accel_a * dt)
+            # slow discharge when signal turns
             self._publish_speed(v_next)
             self.v_last = v_next
             return

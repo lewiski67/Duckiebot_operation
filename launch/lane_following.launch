@@ -9,8 +9,7 @@
     <arg name="free_follow_speed" default="0.3"/>
     <arg name="allow_catch_up" default="false"/>
     <arg name="desired_gap" default="0.5"/>
-    <arg name="b_model" default="0.2"/>
-    <arg name="tau" default="0.05"/>
+   
      <group ns="$(arg robot_name)">
         <!-- <include file="$(find vpa_robot_interface)/launch/vpa_camera.launch"/> -->
         <include file="$(find vpa_robot_perception)/launch/vpa_camera_exposureadjust.launch"/>
@@ -30,8 +29,6 @@
             <param name="v_max" value="$(arg free_follow_speed)"/>
             <param name="allow_catch_up" value="$(arg allow_catch_up)"/>
             <param name="desired_gap" value="$(arg desired_gap)"/>
-            <param name="b_model" value="$(arg b_model)"/>
-            <param name="tau" value="$(arg tau)"/>
          </node>
         <node pkg="vpa_robot_operation" type="state_control_node.py" name="state_controller" output="screen">
             <param name="ignore_stop_lines" value="$(arg ignore_stop_lines)"/>
