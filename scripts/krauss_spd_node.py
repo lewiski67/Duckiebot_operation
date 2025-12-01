@@ -18,7 +18,7 @@ Krauss-style speed setpoint controller (ROS1, Python3)
 import math
 import time
 import rospy
-from std_msgs.msg import Float32
+from std_msgs.msg import Float32, Bool
 from geometry_msgs.msg import Twist
 from vpa_robot_interface.msg import WheelsEncoder
 
@@ -90,11 +90,18 @@ class KraussSpeedController(object):
         rospy.Subscriber("perception/lead_car_distance", Float32, self.cb_lead_dist, queue_size=1)
         self.pub_twist = rospy.Publisher("cmd_vel_acc", Twist, queue_size=1)
         self.pub_vset  = rospy.Publisher("v_setpoint", Float32, queue_size=1)
+        rospy.Subscriber("local_brake", Bool, self.local_brake_callback, queue_size=1)
 
         rospy.loginfo("[krauss_speed_controller] Initialized with v_max=%.3f a=%.3f b=%.3f tau=%.2f z_min=%.2f z_max=%.2f",
                       self.v_max, self.accel_a, self.b_model, self.tau, self.z_min, self.z_max)
 
     # --- Callbacks ---
+
+    def local_brake_callback(self, msg):
+        if msg.data:
+            if self.v_last > 0:
+                self.v_last = 0
+                # this is prevent the robot moving violtating the accel limit when local brake is applied
     def cb_speed(self, msg):
         self.v_meas = (msg.omega_left + msg.omega_right) * 0.5 * self.radius
         self.w_meas = (msg.omega_right - msg.omega_left) * self.radius / self.wheel_base # this is used for estimating if we are turning
