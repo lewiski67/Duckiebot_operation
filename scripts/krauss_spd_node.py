@@ -27,8 +27,8 @@ class KraussSpeedController(object):
         # --- Parameters ---
         self.rate_hz    = rospy.get_param("~rate_hz", 20.0)     # control rate (Hz)
         self.v_max      = rospy.get_param("~v_max", 0.3)        # free-flow speed (m/s)
-        self.accel_a    = rospy.get_param("~a", 0.08)              # accel cap (m/s^2)
-        self.decel_b    = rospy.get_param("~b", 0.14)            # comfortable decel bound (m/s^2)
+        self.accel_a    = rospy.get_param("~a", 0.093)              # accel cap (m/s^2)
+        self.decel_b    = rospy.get_param("~b", 0.16)            # comfortable decel bound (m/s^2)
         self.min_gap    = rospy.get_param("~min_gap", 0.1)      # bumper clearance (m)
         self.stop_gap   = rospy.get_param("~z_stop", 0.1)      # hard stop threshold (m)
         # must match ACCLeadNode so sentinel semantics align:
@@ -37,7 +37,7 @@ class KraussSpeedController(object):
         self.vlead_alpha= rospy.get_param("~vlead_alpha", 0.25) # LPF for inferred leader speed (0..1)
 
         self.b_model    = rospy.get_param("~b_model", 0.2)      # model decel for Krauss calc (m/s^2)
-        self.tau     = rospy.get_param("~tau", 0.05)            # reaction time for Krauss calc (s)    
+        self.tau     = rospy.get_param("~tau", 0.6)            # reaction time for Krauss calc (s)    
         # --- State ---
         self.v_meas   = 0.0
         self.lead_d   = None
