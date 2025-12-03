@@ -42,12 +42,12 @@ class KraussSpeedController(object):
         self.alpha_up   = rospy.get_param("~alpha_up", 0.5)     # (kept for compat, not used now)
         self.v_eps_start= rospy.get_param("~v_eps_start", 0.01) # below this, consider "stopped" (m/s)
         self.v_min_start= rospy.get_param("~v_min_start", 0.12) # min command to break static friction (m/s)
-        self.a_start    = rospy.get_param("~a_start", 0.25)     # accel cap when starting from rest (m/s^2)
+        self.a_start    = rospy.get_param("~a_start", 0.18)     # accel cap when starting from rest (m/s^2)
 
         # Stage / ladder controller: v_stage smoothly follows v_cmd_model
         self.v_stage    = 0.0
         self.stage_tol  = rospy.get_param("~stage_tol", 0.01)   # [m/s] tolerance for snapping to model
-        self.a_stage    = rospy.get_param("~a_stage", 0.12)     # [m/s^2] macro accel limit for v_stage
+        self.a_stage    = rospy.get_param("~a_stage", 0.10)     # [m/s^2] macro accel limit for v_stage
 
         # --- State ---
         self.v_meas   = 0.0
