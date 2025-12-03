@@ -24,7 +24,7 @@ class KraussSpeedController(object):
         # --- Parameters ---
         self.rate_hz    = rospy.get_param("~rate_hz", 20.0)     # control rate (Hz)
         self.v_max      = rospy.get_param("~v_max", 0.3)        # free-flow speed (m/s)
-        self.accel_a    = rospy.get_param("~a", 0.10)           # accel cap (m/s^2)
+        self.accel_a    = rospy.get_param("~a", 0.09)           # accel cap (m/s^2)
         self.decel_b    = rospy.get_param("~b", 0.16)           # comfortable decel bound (m/s^2)
         self.min_gap    = rospy.get_param("~min_gap", 0.1)      # bumper clearance (m)
         self.stop_gap   = rospy.get_param("~z_stop", 0.1)       # hard stop threshold (m)
@@ -41,8 +41,8 @@ class KraussSpeedController(object):
         self.v_switch   = rospy.get_param("~v_switch", 0.05)    # (kept for compat, not used now)
         self.alpha_up   = rospy.get_param("~alpha_up", 0.5)     # (kept for compat, not used now)
         self.v_eps_start= rospy.get_param("~v_eps_start", 0.01) # below this, consider "stopped" (m/s)
-        self.v_min_start= rospy.get_param("~v_min_start", 0.12) # min command to break static friction (m/s)
-        self.a_start    = rospy.get_param("~a_start", 0.18)     # accel cap when starting from rest (m/s^2)
+        self.v_min_start= rospy.get_param("~v_min_start", 0.1) # min command to break static friction (m/s)
+        self.a_start    = rospy.get_param("~a_start", 0.13)     # accel cap when starting from rest (m/s^2)
 
         # Stage / ladder controller: v_stage smoothly follows v_cmd_model
         self.v_stage    = 0.0
