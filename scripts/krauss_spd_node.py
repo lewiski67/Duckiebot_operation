@@ -109,13 +109,13 @@ class KraussSpeedController(object):
             self.is_turning = False
 
         # Debug print for v_meas, with relative time since last zero speed
-        if self.v_meas > 0:
-            if not hasattr(self, 'last_zero_time'):
-                self.last_zero_time = time.time()
-            relative_time = time.time() - self.last_zero_time
-            rospy.loginfo(f"[DEBUG v_meas] t_rel={relative_time:.2f}s v_meas={self.v_meas:.3f} m/s")
-        else:
-            self.last_zero_time = time.time()
+        # if self.v_meas > 0:
+        #     if not hasattr(self, 'last_zero_time'):
+        #         self.last_zero_time = time.time()
+        #     relative_time = time.time() - self.last_zero_time
+        #     rospy.loginfo(f"[DEBUG v_meas] t_rel={relative_time:.2f}s v_meas={self.v_meas:.3f} m/s")
+        # else:
+        #     self.last_zero_time = time.time()
 
     def cb_lead_dist(self, msg):
         self.lead_d = float(msg.data)
