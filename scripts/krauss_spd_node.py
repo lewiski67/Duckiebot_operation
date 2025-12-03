@@ -64,10 +64,12 @@ class KraussSpeedController(object):
         self.turn_counter = 0
         self.allow_catch_up = False
 
+        self.artificial_delay = rospy.get_param("~artificial_delay", 2.0)  # seconds
+
         self.is_turning = False
 
         self.local_brake = True
-
+        self.stopped_by_front_car = False
         self.allow_catch_up = rospy.get_param("~allow_catch_up", False)
 
         self.desired_gap_headway = rospy.get_param("~desired_gap", 0.5)
@@ -174,6 +176,7 @@ class KraussSpeedController(object):
         dt_max = 3.0 / self.rate_hz   # e.g. 3 ticks worth (for 20 Hz → 0.15 s)
         dt = max(0.01, min(dt_max, dt))
         self.t_prev = now
+
         # If local brake is active: hold everything at 0 (full drop-in)
         if self.local_brake:
             self.v_last = 0.0
@@ -181,7 +184,6 @@ class KraussSpeedController(object):
             v_next = 0.0
             self._publish_speed(v_next)
             return
-        
 
         # Require at least one distance read; otherwise decay toward 0 gently
         if self.lead_d is None:
@@ -211,6 +213,26 @@ class KraussSpeedController(object):
 
         # only consider forward leader speed
         self.v_lead = max(0.0, self.v_lead)
+
+        # Check if the front car starts moving after being stopped
+        if self.v_meas == 0.0 and self.lead_d < 1.2 * self.stop_gap: # be robust to small gaps
+            if not hasattr(self, 'stopped_by_front_car') or not self.stopped_by_front_car:
+                self.stopped_by_front_car = True
+                self._publish_speed(0.0)
+                return
+        
+        if self.stopped_by_front_car:
+            if self.lead_d >= 1.2 * self.stop_gap:
+                if not hasattr(self, 'front_car_moving_time'):
+                    self.front_car_moving_time = now
+                else:
+                    if now - self.front_car_moving_time >= self.artificial_delay:
+                        self.stopped_by_front_car = False
+                        # will move next loop
+                    else:
+                        self._publish_speed(0.0)
+                return
+        
 
         # Ideal model speed from gap-keeping
         v_cmd_model = self.gap_keeping_speed(g)
