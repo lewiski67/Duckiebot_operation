@@ -26,8 +26,9 @@ class KraussSpeedController(object):
         self.v_max      = rospy.get_param("~v_max", 0.3)        # free-flow speed (m/s)
         self.accel_a    = rospy.get_param("~a", 0.09)           # accel cap (m/s^2)
         self.decel_b    = rospy.get_param("~b", 0.16)           # comfortable decel bound (m/s^2)
-        self.min_gap    = rospy.get_param("~min_gap", 0.1)      # bumper clearance (m)
-        self.stop_gap   = rospy.get_param("~z_stop", 0.1)       # hard stop threshold (m)
+        self.min_gap    = rospy.get_param("~min_gap", 0.12)      # bumper clearance (m)
+        self.stop_gap   = rospy.get_param("~z_stop", 0.12)       # hard stop threshold (m)
+        # bigger than 0.1m as it has a latency to react, this value
 
         # must match ACCLeadNode so sentinel semantics align:
         self.z_min      = rospy.get_param("~z_min", 0.1)        # min valid distance (m)
