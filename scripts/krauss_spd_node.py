@@ -35,7 +35,7 @@ class KraussSpeedController(object):
         self.vlead_alpha= rospy.get_param("~vlead_alpha", 0.25) # LPF for inferred leader speed (0..1)
 
         self.b_model    = rospy.get_param("~b_model", 0.16)     # model decel for Krauss calc (m/s^2)
-        self.tau        = rospy.get_param("~tau", 1.5)          # reaction time for Krauss calc (s)
+        self.tau        = rospy.get_param("~tau", 1)          # reaction time for Krauss calc (s)
 
         # Hybrid accel / startup behavior
         self.v_switch   = rospy.get_param("~v_switch", 0.05)    # (kept for compat, not used now)
@@ -64,7 +64,7 @@ class KraussSpeedController(object):
         self.turn_counter = 0
         self.allow_catch_up = False
 
-        self.artificial_delay = rospy.get_param("~artificial_delay", 2)  # seconds
+        self.artificial_delay = rospy.get_param("~artificial_delay", 1.8)  # seconds
 
         self.is_turning = False
 
