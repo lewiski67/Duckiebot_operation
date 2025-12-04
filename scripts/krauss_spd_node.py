@@ -24,7 +24,7 @@ class KraussSpeedController(object):
         # --- Parameters ---
         self.rate_hz    = rospy.get_param("~rate_hz", 20.0)     # control rate (Hz)
         self.v_max      = rospy.get_param("~v_max", 0.3)        # free-flow speed (m/s)
-        self.accel_a    = rospy.get_param("~a", 0.04)           # accel cap (m/s^2)
+        self.accel_a    = rospy.get_param("~a", 0.09)           # accel cap (m/s^2)
         self.decel_b    = rospy.get_param("~b", 0.16)           # comfortable decel bound (m/s^2)
         self.min_gap    = rospy.get_param("~min_gap", 0.1)      # bumper clearance (m)
         self.stop_gap   = rospy.get_param("~z_stop", 0.1)       # hard stop threshold (m)
@@ -78,6 +78,8 @@ class KraussSpeedController(object):
 
         # Debug timing
         self.last_debug_time = None
+
+        self.true_stop_gap = None
 
         rospy.Subscriber('freeflowspd', Float32, self.freeflowspd_callback)
 
@@ -216,18 +218,21 @@ class KraussSpeedController(object):
 
         # Check if the front car starts moving after being stopped
         if self.v_meas == 0.0 and self.lead_d < 1.2 * self.stop_gap: # be robust to small gaps
+            if self.true_stop_gap is None:
+                self.true_stop_gap = self.lead_d
             if not hasattr(self, 'stopped_by_front_car') or not self.stopped_by_front_car:
                 self.stopped_by_front_car = True
                 self._publish_speed(0.0)
                 return
         
         if self.stopped_by_front_car:
-            if self.lead_d >= 1.2 * self.stop_gap:
+            if self.lead_d >= 1.1 * self.true_stop_gap:
                 if not hasattr(self, 'front_car_moving_time'):
                     self.front_car_moving_time = now
                 else:
                     if now - self.front_car_moving_time >= self.artificial_delay:
                         self.stopped_by_front_car = False
+                        self.true_stop_gap = None
                         # will move next loop
                     else:
                         self._publish_speed(0.0)
