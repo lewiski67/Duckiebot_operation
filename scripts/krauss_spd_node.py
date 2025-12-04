@@ -252,6 +252,12 @@ class KraussSpeedController(object):
                         self.v_last = 0.0
                         self.v_stage = 0.0
                         return
+            else:
+                self.front_car_moving_time = None
+                self._publish_speed(0.0)
+                self.v_last = 0.0
+                self.v_stage = 0.0
+                return
         
 
         # Ideal model speed from gap-keeping
@@ -307,6 +313,8 @@ class KraussSpeedController(object):
         if self.lead_d < self.stop_gap:
             v_next = 0.0
             self.v_stage = 0.0
+            self.v_last = 0.0
+        # ---------------------------------------------------------
 
         # --- Debug print ---
         # if self.last_debug_time is None or (now - self.last_debug_time) > 0.1:
