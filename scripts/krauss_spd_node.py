@@ -65,7 +65,7 @@ class KraussSpeedController(object):
         self.turn_counter = 0
         self.allow_catch_up = False
 
-        self.artificial_delay = rospy.get_param("~artificial_delay", 1.8)  # seconds
+        self.artificial_delay = rospy.get_param("~artificial_delay", 0.8)  # seconds
 
         self.is_turning = False
 
