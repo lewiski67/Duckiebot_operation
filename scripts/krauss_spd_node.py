@@ -64,13 +64,14 @@ class KraussSpeedController(object):
         self.turn_counter = 0
         self.allow_catch_up = False
 
-        self.artificial_delay = rospy.get_param("~artificial_delay", 2.5)  # seconds
+        self.artificial_delay = rospy.get_param("~artificial_delay", 2)  # seconds
 
         self.is_turning = False
 
         self.local_brake = True
         self.stopped_by_front_car = False
         self.allow_catch_up = rospy.get_param("~allow_catch_up", False)
+        self.front_car_moving_time = None
 
         self.desired_gap_headway = rospy.get_param("~desired_gap", 0.5)
         # desired gap for formation control (m), this is headway distance, not bumper to bumper distance
@@ -217,26 +218,39 @@ class KraussSpeedController(object):
         self.v_lead = max(0.0, self.v_lead)
 
         # Check if the front car starts moving after being stopped
-        if self.v_meas == 0.0 and self.lead_d < 1.2 * self.stop_gap: # be robust to small gaps
-            if self.true_stop_gap is None:
-                self.true_stop_gap = self.lead_d
+        if self.v_meas == 0.0 and self.lead_d < 1.2 * self.stop_gap and not self.stopped_by_front_car: # be robust to small gaps
+            print("Front car is stopped.")
+            self.true_stop_gap = self.lead_d
+            print(f"Recorded true stop gap: {self.true_stop_gap:.3f} m")
             if not hasattr(self, 'stopped_by_front_car') or not self.stopped_by_front_car:
                 self.stopped_by_front_car = True
                 self._publish_speed(0.0)
                 return
         
         if self.stopped_by_front_car:
-            if self.lead_d >= 1.1 * self.true_stop_gap:
-                if not hasattr(self, 'front_car_moving_time'):
+            if self.lead_d >= 1.5 * self.true_stop_gap and self.lead_d > self.stop_gap:
+                print("Front car started moving.")
+                if self.front_car_moving_time is None:
                     self.front_car_moving_time = now
+                    self._publish_speed(0.0)
+                    self.v_last = 0.0
+                    self.v_stage = 0.0
+                    return  
                 else:
+                    print("Waiting for artificial delay to pass...")
                     if now - self.front_car_moving_time >= self.artificial_delay:
                         self.stopped_by_front_car = False
-                        self.true_stop_gap = None
+                        self.true_stop_gap = self.desired_gap  # reset desired gap
                         # will move next loop
+                        print("Artificial delay passed. Resuming movement.")
+                        print ('waiting time:', now - self.front_car_moving_time    )
+                        self.front_car_moving_time = None
+                       
                     else:
                         self._publish_speed(0.0)
-                return
+                        self.v_last = 0.0
+                        self.v_stage = 0.0
+                        return
         
 
         # Ideal model speed from gap-keeping
