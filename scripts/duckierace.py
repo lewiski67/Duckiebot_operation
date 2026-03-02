@@ -22,7 +22,7 @@ class LineFollower:
         self.min_speed = 0.2
 
         self.kp = 5
-        self.kd = rospy.get_param('~kd', 1.5)
+        self.kd = rospy.get_param('~kd', 2.5)
         self.last_error = 0.0
         self.last_time = rospy.Time.now()
 
@@ -60,7 +60,7 @@ class LineFollower:
         self.spd_pub = rospy.Publisher("speed_percent", Float32, queue_size=1)  
         fuel_topic = "in_fuel_zone"
         self.fuel_sub = rospy.Subscriber(fuel_topic, Bool, self.fuel_callback)
-
+        self.stop_in_fuel = False
         self.power_pub.publish(data=self.power_level)
         self.fuel_timer = rospy.Timer(rospy.Duration(1.0), self.fuel_timer_callback)
         rospy.loginfo("Line follower node initialized")
@@ -112,10 +112,23 @@ class LineFollower:
             self.charging = True
         else:
             self.charging = False
-        # Button B (index 1): prefer red lines
-        self.red_mode_active = bool(msg.buttons[1])
+
+        # Button B (index 1): prefer yellow lines, naming has legacy problem, keep for now
+        if not self.in_fuel_zone:
+            # red mode here actually means alternative color, as in yellow in the setup
+            # this command allows changing to yellow line when not in fuel zone, and will automatically come back to red if release buttons
+            self.red_mode_active = bool(msg.buttons[1]) 
+            self.stop_in_fuel = False  # Reset stop flag when toggling color mode outside fuel zone
+        elif not bool(msg.buttons[1]): # when let go button B in fuel zone, force stop to prevent going anywhere
+            self.stop_in_fuel = True
+        else:
+            self.stop_in_fuel = False
+
 
     def image_callback(self, msg):
+        if self.stop_in_fuel:
+            self.publish_twist(0.0, 0.0)  # Ensure we stay stopped in fuel zone
+            return
         try:
             bgr = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
         except Exception as e:
@@ -146,7 +159,9 @@ class LineFollower:
             if not self.lost_detect:
                 rospy.logwarn("No line detected!")
             self.lost_detect = True
-            self.publish_twist(0.0, 0.0)
+            if self.in_fuel_zone:
+                self.publish_twist(0.0, 0.0)  # Stop in fuel zone if line is lost
+
             return
         self.lost_detect = False
         avg_x = int(np.mean(indices))

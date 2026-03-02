@@ -38,6 +38,9 @@ Once started, the robot should begin driving forward automatically.
 - Decreases forward velocity
 - Reduces energy consumption
 
+### both L2 and R2 – Full Stop （not implemented yet）
+- Press both simultaneously to stop the robot immediately
+
 The robot always moves forward unless braking or losing the line.
 
 ---
@@ -79,7 +82,7 @@ If the robot stops again immediately:
 ### B – Toggle Red Line Mode
 
 When enabled:
-- Robot prefers red line instead of yellow
+- Robot prefers yellow line instead of red
 
 If the red line disappears for ~1 second:
 - Robot automatically switches back to yellow tracking
