@@ -26,8 +26,8 @@ class LineFollower:
         self.last_error = 0.0
         self.last_time = rospy.Time.now()
 
-        self.default_color = 'yellow'
-        self.alt_color = 'red'
+        self.default_color = 'red'
+        self.alt_color = 'yellow'
         self.target_color = self.default_color
         self.red_mode_active = False
         self.red_line_last_seen = rospy.Time.now()
