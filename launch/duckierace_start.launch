@@ -1,0 +1,18 @@
+<launch>
+  <!-- Start camera node -->
+  <arg name="robot_name" value="$(env robot_name)"/>
+  <arg name="lane_kd" default="1.5" />
+  <group ns="$(arg robot_name)">
+  <include file="$(find vpa_robot_interface)/launch/vpa_camera.launch" />
+  <!-- Start motor driver node -->
+  <include file="$(find vpa_robot_interface)/launch/vpa_traction_start.launch" />
+  <node name="joy_node" pkg="joy" type="joy_node">
+    <param name="dev" value="/dev/input/js0" />
+  </node>  
+  <!-- Start your line follower -->
+  <node pkg="vpa_duckierace" type="line_follow_node.py" name="line_follower" output="screen" >
+    <param name="kd" value="$(arg lane_kd)" />
+    <param name="robot_name" value="$(arg robot_name)" />
+  </node>
+  </group>
+</launch>
