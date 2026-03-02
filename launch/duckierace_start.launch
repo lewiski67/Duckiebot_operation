@@ -10,7 +10,7 @@
     <param name="dev" value="/dev/input/js0" />
   </node>  
   <!-- Start your line follower -->
-  <node pkg="vpa_duckierace" type="line_follow_node.py" name="line_follower" output="screen" >
+  <node pkg="vpa_robot_operation" type="duckierace.py" name="dr_line_follower" output="screen" >
     <param name="kd" value="$(arg lane_kd)" />
     <param name="robot_name" value="$(arg robot_name)" />
   </node>
