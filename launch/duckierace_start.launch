@@ -14,5 +14,6 @@
     <param name="kd" value="$(arg lane_kd)" />
     <param name="robot_name" value="$(arg robot_name)" />
   </node>
+  <include file="$(find vpa_robot_interface)/launch/vpa_tof.launch" />
   </group>
 </launch>
