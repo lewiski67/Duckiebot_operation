@@ -19,6 +19,6 @@
     <param name="robot_name" value="$(arg robot_name)" />
     <param name="initial_power" value="$(arg initial_power)" />
   </node>
-  <include file="$(find vpa_robot_interface)/launch/vpa_tof.launch" />
+  <include file="$(find vpa_robot_interface)/launch/vpa_tof.launch" if="$(arg use_tof)" />
   </group>
 </launch>
