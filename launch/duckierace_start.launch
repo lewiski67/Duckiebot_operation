@@ -2,7 +2,7 @@
   <!-- Start camera node -->
   <arg name="robot_name" value="$(env robot_name)"/>
   <arg name="lane_kd" default="0.4" />
-  <arg name="initial_power" default="75.0" />
+  <arg name="initial_power" default="$(optenv DUCKIERACE_INITIAL_POWER 75.0)" />
   <arg name="use_physical_joy" default="false" />
   <arg name="joy_dev" default="/dev/input/js0" />
   <arg name="use_tof" default="false" />
