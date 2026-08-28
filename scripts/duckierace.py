@@ -3,8 +3,8 @@ import rospy
 from sensor_msgs.msg import Image, Joy, Range
 from std_msgs.msg import Bool, Float32, Int32
 from geometry_msgs.msg import Twist
-from cv_bridge import CvBridge
 import cv2
+from cv_bridge import CvBridge
 import numpy as np
 import time
 from color_detector import ColorDetector
@@ -55,7 +55,15 @@ class LineFollower:
         self.z_min = 0
         self.z_max = 1.5
         self.tof_status = 0 # For start
-        self.tof_range = self.z_max + 0.1
+        self.tof_emergency_stop_enabled = rospy.get_param('~tof_emergency_stop', False)
+        self.tof_stop_distance = rospy.get_param('~tof_stop_distance', 0.20)
+        self.tof_release_distance = rospy.get_param('~tof_release_distance', 0.25)
+        self.tof_recovery_duration = rospy.get_param('~tof_recovery_duration', 1.0)
+        self.tof_mount_offset = rospy.get_param('~tof_mount_offset', 0.0)
+        self.tof_obstacle_stop = False
+        self.tof_recovery_start = None
+        self.tof_near_count = 0
+        self.tof_stop_confirm_samples = 2
         self.tof_status_sub = rospy.Subscriber("front_range_status", Int32, self.status_tof_callback, queue_size=1)
 
         self.tof_sub = rospy.Subscriber("front_range", Range, self.tof_callback, queue_size=1)
@@ -99,10 +107,36 @@ class LineFollower:
         self.tof_status = msg.data    
 
     def tof_callback(self, msg: Range):
-        if self.tof_status == 9:
-            self.tof_range = np.clip(msg.range-0.04, self.z_min, self.z_max)  # small seeting because of mounting offset
+        valid_reading = (
+            self.tof_status == 9
+            and np.isfinite(msg.range)
+            and msg.range >= msg.min_range
+        )
+        if valid_reading:
+            corrected_distance = np.clip(msg.range - self.tof_mount_offset, self.z_min, self.z_max)
+            if corrected_distance <= self.tof_stop_distance + 1e-6:
+                self.tof_near_count += 1
+                if self.tof_near_count >= self.tof_stop_confirm_samples:
+                    self.set_tof_obstacle_stop(True, "obstacle too close")
+            elif corrected_distance >= self.tof_release_distance - 1e-6:
+                self.tof_near_count = 0
+                self.set_tof_obstacle_stop(False, "safe distance restored")
+            else:
+                self.tof_near_count = 0
         else:
-            self.tof_range = self.z_max + 0.1  # invalid reading
+            self.tof_near_count = 0
+            self.set_tof_obstacle_stop(False, "no obstacle detected")
+
+    def set_tof_obstacle_stop(self, stop, reason):
+        if not self.tof_emergency_stop_enabled or self.tof_obstacle_stop == stop:
+            return
+        self.tof_obstacle_stop = stop
+        if stop:
+            self.tof_recovery_start = None
+            rospy.logwarn("ToF emergency stop: %s", reason)
+        else:
+            self.tof_recovery_start = rospy.Time.now()
+            rospy.loginfo("ToF emergency stop released: %s", reason)
 
         
     def fuel_timer_callback(self, event):
@@ -191,7 +225,6 @@ class LineFollower:
 
     def image_callback(self, msg):
 
-        # ToF obstacle stopping disabled for DuckieRace; the front ToF is unreliable on this car.
         if self.stop_in_fuel:
             self.publish_twist(0.0, 0.0)  # Ensure we stay stopped in fuel zone
             return
@@ -257,6 +290,18 @@ class LineFollower:
             # self.power_pub.publish(data=self.power_level)
 
     def publish_twist(self, linear, angular):
+        if self.tof_emergency_stop_enabled:
+            if self.tof_obstacle_stop:
+                linear = 0.0
+                angular = 0.0
+            elif self.tof_recovery_start is not None:
+                elapsed = (rospy.Time.now() - self.tof_recovery_start).to_sec()
+                if self.tof_recovery_duration <= 0.0 or elapsed >= self.tof_recovery_duration:
+                    self.tof_recovery_start = None
+                else:
+                    recovery_scale = max(0.0, elapsed / self.tof_recovery_duration)
+                    linear *= recovery_scale
+                    angular *= recovery_scale
         msg = Twist()
         msg.linear.x = linear
         msg.angular.z = angular
