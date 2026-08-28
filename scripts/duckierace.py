@@ -28,7 +28,7 @@ class LineFollower:
         self.max_speed = 0.35
         self.min_speed = 0.15
 
-        self.kp = 4.0
+        self.kp = 3.0
         self.kd = rospy.get_param('~kd', 0.4)
         self.last_error = 0.0
         self.last_angular_speed = 0.0
@@ -48,7 +48,7 @@ class LineFollower:
         self.button_l1 = 4
         self.button_r1 = 5
 
-        self.h_row_ratio = 0.6
+        self.h_row_ratio = 0.76
         self.stop_in_fuel = False
         
         
@@ -239,7 +239,7 @@ class LineFollower:
         derror = (error - self.last_error) / dt if dt > 0 else 0.0
 
         angular_speed = -self.kp * error - self.kd * derror
-        angular_speed = np.clip(angular_speed, -1.2, 1.2)
+        angular_speed = np.clip(angular_speed, -0.8, 0.8)
 
         self.last_error = error
         self.last_angular_speed = angular_speed
