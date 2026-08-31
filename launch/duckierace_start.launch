@@ -6,6 +6,11 @@
   <arg name="use_physical_joy" default="false" />
   <arg name="joy_dev" default="/dev/input/js0" />
   <arg name="use_tof" default="false" />
+  <arg name="tof_emergency_stop" default="$(arg use_tof)" />
+  <arg name="tof_stop_distance" default="0.20" />
+  <arg name="tof_release_distance" default="0.25" />
+  <arg name="tof_recovery_duration" default="1.0" />
+  <arg name="tof_mount_offset" default="0.04" />
   <group ns="$(arg robot_name)">
   <include file="$(find vpa_robot_interface)/launch/vpa_camera.launch" />
   <!-- Start motor driver node -->
@@ -18,6 +23,11 @@
     <param name="kd" value="$(arg lane_kd)" />
     <param name="robot_name" value="$(arg robot_name)" />
     <param name="initial_power" value="$(arg initial_power)" />
+    <param name="tof_emergency_stop" value="$(arg tof_emergency_stop)" />
+    <param name="tof_stop_distance" value="$(arg tof_stop_distance)" />
+    <param name="tof_release_distance" value="$(arg tof_release_distance)" />
+    <param name="tof_recovery_duration" value="$(arg tof_recovery_duration)" />
+    <param name="tof_mount_offset" value="$(arg tof_mount_offset)" />
   </node>
   <include file="$(find vpa_robot_interface)/launch/vpa_tof.launch" if="$(arg use_tof)" />
   </group>
