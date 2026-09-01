@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import rospy
-from sensor_msgs.msg import Image, Joy, Range
-from std_msgs.msg import Bool, Float32, Int32
+from sensor_msgs.msg import Image, Joy
+from std_msgs.msg import Bool, Float32
 from geometry_msgs.msg import Twist
 import cv2
 from cv_bridge import CvBridge
@@ -50,29 +50,7 @@ class LineFollower:
 
         self.h_row_ratio = 0.76
         self.stop_in_fuel = False
-        
-        
-        self.z_min = 0
-        self.z_max = 1.5
-        self.tof_status = 0 # For start
-        self.tof_emergency_stop_enabled = rospy.get_param('~tof_emergency_stop', False)
-        self.tof_stop_distance = rospy.get_param('~tof_stop_distance', 0.20)
-        self.tof_release_distance = rospy.get_param('~tof_release_distance', 0.25)
-        self.tof_recovery_duration = rospy.get_param('~tof_recovery_duration', 1.0)
-        self.tof_mount_offset = rospy.get_param('~tof_mount_offset', 0.04)
-        self.tof_obstacle_stop = False
-        self.tof_recovery_start = None
-        self.tof_near_count = 0
-        self.tof_stop_confirm_samples = 2
-        self.tof_status_sub = rospy.Subscriber("front_range_status", Int32, self.status_tof_callback, queue_size=1)
-
-        self.tof_sub = rospy.Subscriber("front_range", Range, self.tof_callback, queue_size=1)
-
-        self.tof_warn = False
-
-        self.joy_sub    = rospy.Subscriber('joy', Joy, self.joy_callback)
-        self.image_sub  = rospy.Subscriber('robot_cam/image_raw', Image, self.image_callback)
-        self.cmd_pub    = rospy.Publisher('cmd_vel', Twist, queue_size=1)
+        self.cmd_pub    = rospy.Publisher('cmd_vel_auto', Twist, queue_size=1)
 
         self.last_joy_time = 0
 
@@ -80,36 +58,9 @@ class LineFollower:
         self.brake_pub = rospy.Publisher(f"/{self.robot_name}/local_brake", Bool, queue_size=1)
         self.last_brake_sent = False
 
-        # --- Autonomous charging: predictive & time-aware ---
-        # Instead of a fixed "go charge below X%" threshold, we project
-        # whether the robot would actually cross low_power_threshold before
-        # the race ends if it kept driving without charging. This means:
-        #  - a robot that starts with plenty of charge may never divert at
-        #    all if it wouldn't need to anyway (fewer stops = less fixed
-        #    detour/queueing overhead per stop)
-        #  - a robot only commits to a charge if there's still enough race
-        #    time left to actually finish it and still drive afterward
-        # No peer-to-peer coordination: the fuel zone only fits one robot,
-        # so in_fuel_zone (from the overhead camera system) already acts as
-        # the physical lock, and the ToF emergency stop keeps a following
-        # robot from getting too close.
-        self.autonomous_mode     = rospy.get_param('~autonomous_mode', True)
-        self.charge_target_soc   = rospy.get_param('~charge_target_soc', 100.0)   # charge up to this
-        self.charge_safety_margin = rospy.get_param('~charge_safety_margin', 10.0)  # percent, buffer above low_power_threshold
-        self.race_duration       = rospy.get_param('~race_duration', 300.0)       # total race time (s)
-        self.race_start_time     = time.time()                                   # assumes node start ≈ race start
-        self.want_charge = False
-
-        if self.autonomous_mode:
-            # Periodically retries releasing the local brake, replacing the manual
-            # X-button release for merge conflicts. If the overhead camera manager
-            # still considers us in conflict it will simply re-assert the brake,
-            # so this is safe to retry blindly.
-            self.brake_retry_timer = rospy.Timer(rospy.Duration(0.5), self.brake_retry_callback)
-
         self.power_level            = self.default_power_level  # start at 100%
         self.power_depletion_rate   = 3    # base depletion factor
-        self.low_power_threshold    = rospy.get_param('~low_power_threshold', 20.0)   # percent; artificial slowdown onset per spec, hard cutoff (given by the assignment)
+        self.low_power_threshold    = rospy.get_param('~low_power_threshold', 10.0)   # percent; artificial slowdown onset per spec, hard cutoff (given by the assignment)
         
         self.in_fuel_zone           = False
         self.charging = False
@@ -127,51 +78,11 @@ class LineFollower:
         self.power_pub.publish(data=self.power_level)
         self.reset_power_speed_sub = rospy.Subscriber("reset_power_speed", Bool, self.reset_power_speed_callback)
         self.fuel_timer = rospy.Timer(rospy.Duration(1.0), self.fuel_timer_callback)
+        self.joy_sub = rospy.Subscriber('joy', Joy, self.joy_callback)
+        self.image_sub = rospy.Subscriber('robot_cam/image_raw', Image, self.image_callback)
         rospy.loginfo("Line follower node initialized")
     
-    def status_tof_callback(self, msg: Int32):
-        self.tof_status = msg.data    
-
-    def tof_callback(self, msg: Range):
-        valid_reading = (
-            self.tof_status == 9
-            and np.isfinite(msg.range)
-            and msg.range >= msg.min_range
-        )
-        if valid_reading:
-            corrected_distance = np.clip(msg.range - self.tof_mount_offset, self.z_min, self.z_max)
-            if corrected_distance <= self.tof_stop_distance + 1e-6:
-                self.tof_near_count += 1
-                if self.tof_near_count >= self.tof_stop_confirm_samples:
-                    self.set_tof_obstacle_stop(True, "obstacle too close")
-            elif corrected_distance >= self.tof_release_distance - 1e-6:
-                self.tof_near_count = 0
-                self.set_tof_obstacle_stop(False, "safe distance restored")
-            else:
-                self.tof_near_count = 0
-        else:
-            self.tof_near_count = 0
-            self.set_tof_obstacle_stop(False, "no obstacle detected")
-
-    def set_tof_obstacle_stop(self, stop, reason):
-        if not self.tof_emergency_stop_enabled or self.tof_obstacle_stop == stop:
-            return
-        self.tof_obstacle_stop = stop
-        if stop:
-            self.tof_recovery_start = None
-            rospy.logwarn("ToF emergency stop: %s", reason)
-        else:
-            self.tof_recovery_start = rospy.Time.now()
-            rospy.loginfo("ToF emergency stop released: %s", reason)
-
-        
     def fuel_timer_callback(self, event):
-        if self.autonomous_mode:
-            self.update_charge_decision()
-            # Steer towards the yellow bypass whenever we want to charge; this is
-            # safe to set well before reaching the physical fork, since the lane
-            # follower only actually switches color once a fork is in view.
-            self.red_mode_active = self.want_charge
         if self.charging:
             print(f"[{self.robot_name}]: Charging in fuel zone")
             self.power_level = min(100.0, self.power_level + self.recharge_rate)
@@ -195,59 +106,6 @@ class LineFollower:
     def fuel_callback(self, msg):
         self.in_fuel_zone = msg.data
         print(f"[{self.robot_name}]:Fuel zone status: {self.in_fuel_zone}")
-
-    def update_charge_decision(self):
-        """Predictive, time-aware charging.
-        Rather than a fixed SoC threshold, project whether this robot would
-        actually cross low_power_threshold before the race ends if it kept
-        driving without charging — and only commit to a charge if there's
-        still enough race time left to finish it and still drive afterward.
-        No peer-to-peer coordination needed: the fuel zone only fits one
-        robot, so in_fuel_zone (from the overhead camera system) already
-        acts as the physical lock, and the ToF emergency stop keeps a
-        following robot from getting too close.
-        """
-        remaining = self.race_duration - (time.time() - self.race_start_time)
-
-        if self.charging:
-            if self.power_level >= self.charge_target_soc:
-                rospy.loginfo(f"[{self.robot_name}] Charge target reached, resuming lap")
-                self.charging = False
-                self.want_charge = False
-            return  # keep charging, nothing else to decide this tick
-
-        # Would we EVER cross the penalty threshold before the race ends,
-        # if we drove continuously without charging? (Only relevant if this
-        # is a long way off — used to skip charging entirely for a robot
-        # that started with enough charge to finish the race outright.)
-        depletion_rate = self.power_depletion_rate * self.speed  # %/s while driving
-        if depletion_rate > 0:
-            time_until_low = (self.power_level - self.low_power_threshold) / depletion_rate
-        else:
-            time_until_low = float('inf')
-        will_ever_need_charge = time_until_low < remaining
-
-        # Separately: are we close enough to the threshold right now that we
-        # should actually go charge? (This is the part that must NOT look at
-        # the full remaining race time, or it fires almost immediately.)
-        needs_charge_now = self.power_level < (self.low_power_threshold + self.charge_safety_margin)
-
-        # Only commit if there's enough time left to actually finish the
-        # charge and still get some driving in afterward.
-        charge_time_needed = (self.charge_target_soc - self.power_level) / self.recharge_rate
-        worth_it = remaining > charge_time_needed
-
-        self.want_charge = will_ever_need_charge and needs_charge_now and worth_it
-
-        if self.want_charge and self.in_fuel_zone:
-            self.charging = True
-            rospy.loginfo(f"[{self.robot_name}] Starting charge at {self.power_level:.1f}%")
-
-
-    def brake_retry_callback(self, event):
-        if self.charging:
-            return  # intentionally stationary, do not try to drive off
-        self.brake_pub.publish(Bool(data=False))
 
     def joy_callback(self, msg):
         now = time.time()
@@ -288,18 +146,13 @@ class LineFollower:
         #     self.brake_pub.publish(Bool(data=True))
         #     self.last_brake_sent = False
 
-        if not self.autonomous_mode:
-            if msg.buttons[self.button_y] and self.in_fuel_zone: # Y
-                self.charging = True
-            else:
-                self.charging = False
+        if msg.buttons[self.button_y] and self.in_fuel_zone: # Y
+            self.charging = True
+        else:
+            self.charging = False
 
-            # Button B: prefer yellow lines, naming has legacy problem, keep for now
-            self.red_mode_active = bool(msg.buttons[self.button_b])
-        # In autonomous_mode, self.charging and self.red_mode_active are instead
-        # driven by update_charge_decision() (see fuel_timer_callback), so Y and B
-        # are simply ignored here and left available as manual overrides if
-        # autonomous_mode is turned off via the ~autonomous_mode param.
+        # Button B: prefer yellow lines, naming has legacy problem, keep for now
+        self.red_mode_active = bool(msg.buttons[self.button_b])
         # if not self.in_fuel_zone:
         #     # red mode here actually means alternative color, as in yellow in the setup
         #     # this command allows changing to yellow line when not in fuel zone, and will automatically come back to red if release buttons
@@ -381,18 +234,6 @@ class LineFollower:
             # self.power_pub.publish(data=self.power_level)
 
     def publish_twist(self, linear, angular):
-        if self.tof_emergency_stop_enabled:
-            if self.tof_obstacle_stop:
-                linear = 0.0
-                angular = 0.0
-            elif self.tof_recovery_start is not None:
-                elapsed = (rospy.Time.now() - self.tof_recovery_start).to_sec()
-                if self.tof_recovery_duration <= 0.0 or elapsed >= self.tof_recovery_duration:
-                    self.tof_recovery_start = None
-                else:
-                    recovery_scale = max(0.0, elapsed / self.tof_recovery_duration)
-                    linear *= recovery_scale
-                    angular *= recovery_scale
         msg = Twist()
         msg.linear.x = linear
         msg.angular.z = angular

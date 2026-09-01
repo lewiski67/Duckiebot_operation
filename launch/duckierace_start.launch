@@ -3,32 +3,51 @@
   <arg name="robot_name" value="$(env robot_name)"/>
   <arg name="lane_kd" default="0.4" />
   <arg name="initial_power" default="$(optenv DUCKIERACE_INITIAL_POWER 75.0)" />
-  <arg name="use_physical_joy" default="false" />
+  <arg name="use_physical_joy" default="true" />
   <arg name="joy_dev" default="/dev/input/js0" />
+  <arg name="manual_linear_axis" default="1" />
+  <arg name="manual_angular_axis" default="3" />
+  <arg name="manual_linear_scale" default="0.25" />
+  <arg name="manual_angular_scale" default="1.5" />
   <arg name="use_tof" default="false" />
   <arg name="tof_emergency_stop" default="$(arg use_tof)" />
   <arg name="tof_stop_distance" default="0.20" />
   <arg name="tof_release_distance" default="0.25" />
   <arg name="tof_recovery_duration" default="1.0" />
   <arg name="tof_mount_offset" default="0.04" />
+  <arg name="use_apriltag_stop" default="true" />
   <group ns="$(arg robot_name)">
   <include file="$(find vpa_robot_interface)/launch/vpa_camera.launch" />
   <!-- Start motor driver node -->
   <include file="$(find vpa_robot_interface)/launch/vpa_traction_start.launch" />
-  <node name="joy_node" pkg="joy" type="joy_node" if="$(arg use_physical_joy)">
+  <node name="joy_node" pkg="joy" type="joy_node" if="$(arg use_physical_joy)" respawn="true" respawn_delay="2.0">
     <param name="dev" value="$(arg joy_dev)" />
+    <remap from="joy" to="joy_raw" />
+  </node>
+  <node name="manual_joy_command" pkg="vpa_robot_operation" type="manual_joy_cmd.py"
+        output="screen" if="$(arg use_physical_joy)">
+    <param name="linear_axis" value="$(arg manual_linear_axis)" />
+    <param name="angular_axis" value="$(arg manual_angular_axis)" />
+    <param name="linear_scale" value="$(arg manual_linear_scale)" />
+    <param name="angular_scale" value="$(arg manual_angular_scale)" />
   </node>
   <!-- Start your line follower -->
   <node pkg="vpa_robot_operation" type="duckierace.py" name="dr_line_follower" output="screen" >
     <param name="kd" value="$(arg lane_kd)" />
     <param name="robot_name" value="$(arg robot_name)" />
     <param name="initial_power" value="$(arg initial_power)" />
+  </node>
+  <node pkg="vpa_robot_operation" type="control_authority_mux.py"
+        name="control_authority_mux" output="screen" required="true">
     <param name="tof_emergency_stop" value="$(arg tof_emergency_stop)" />
     <param name="tof_stop_distance" value="$(arg tof_stop_distance)" />
     <param name="tof_release_distance" value="$(arg tof_release_distance)" />
-    <param name="tof_recovery_duration" value="$(arg tof_recovery_duration)" />
+    <param name="recovery_duration" value="$(arg tof_recovery_duration)" />
     <param name="tof_mount_offset" value="$(arg tof_mount_offset)" />
   </node>
   <include file="$(find vpa_robot_interface)/launch/vpa_tof.launch" if="$(arg use_tof)" />
   </group>
+  <include file="$(find vpa_robot_perception)/launch/apriltag_stop.launch" if="$(arg use_apriltag_stop)">
+    <arg name="robot_name" value="$(arg robot_name)" />
+  </include>
 </launch>
