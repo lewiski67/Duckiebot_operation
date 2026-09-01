@@ -58,15 +58,19 @@ class LineFollower:
         self.tof_emergency_stop_enabled = rospy.get_param('~tof_emergency_stop', False)
         self.tof_stop_distance = rospy.get_param('~tof_stop_distance', 0.20)
         self.tof_release_distance = rospy.get_param('~tof_release_distance', 0.25)
-        self.tof_recovery_duration = rospy.get_param('~tof_recovery_duration', 1.0)
+        self.safety_recovery_duration = rospy.get_param('~tof_recovery_duration', 1.0)
         self.tof_mount_offset = rospy.get_param('~tof_mount_offset', 0.0)
         self.tof_obstacle_stop = False
-        self.tof_recovery_start = None
+        self.apriltag_stop_active = False
+        self.safety_recovery_start = None
         self.tof_near_count = 0
         self.tof_stop_confirm_samples = 2
         self.tof_status_sub = rospy.Subscriber("front_range_status", Int32, self.status_tof_callback, queue_size=1)
 
         self.tof_sub = rospy.Subscriber("front_range", Range, self.tof_callback, queue_size=1)
+        self.apriltag_stop_sub = rospy.Subscriber(
+            "apriltag_stop/active", Bool, self.apriltag_stop_callback, queue_size=1
+        )
 
         self.tof_warn = False
 
@@ -132,11 +136,34 @@ class LineFollower:
             return
         self.tof_obstacle_stop = stop
         if stop:
-            self.tof_recovery_start = None
+            self.safety_recovery_start = None
             rospy.logwarn("ToF emergency stop: %s", reason)
         else:
-            self.tof_recovery_start = rospy.Time.now()
-            rospy.loginfo("ToF emergency stop released: %s", reason)
+            if self.apriltag_stop_active:
+                rospy.loginfo("ToF stop released, but AprilTag stop remains active: %s", reason)
+            else:
+                self.safety_recovery_start = rospy.Time.now()
+                rospy.loginfo("ToF emergency stop released: %s", reason)
+
+    def apriltag_stop_callback(self, msg: Bool):
+        active = bool(msg.data)
+        if self.apriltag_stop_active == active:
+            return
+
+        self.apriltag_stop_active = active
+        if active:
+            self.safety_recovery_start = None
+            rospy.logwarn("AprilTag STOP active")
+        elif self.tof_emergency_stop_enabled and self.tof_obstacle_stop:
+            rospy.loginfo("AprilTag STOP released, but ToF stop remains active")
+        else:
+            self.safety_recovery_start = rospy.Time.now()
+            rospy.loginfo("AprilTag STOP released; starting speed recovery")
+
+    def safety_stop_active(self):
+        return self.apriltag_stop_active or (
+            self.tof_emergency_stop_enabled and self.tof_obstacle_stop
+        )
 
         
     def fuel_timer_callback(self, event):
@@ -290,18 +317,17 @@ class LineFollower:
             # self.power_pub.publish(data=self.power_level)
 
     def publish_twist(self, linear, angular):
-        if self.tof_emergency_stop_enabled:
-            if self.tof_obstacle_stop:
-                linear = 0.0
-                angular = 0.0
-            elif self.tof_recovery_start is not None:
-                elapsed = (rospy.Time.now() - self.tof_recovery_start).to_sec()
-                if self.tof_recovery_duration <= 0.0 or elapsed >= self.tof_recovery_duration:
-                    self.tof_recovery_start = None
-                else:
-                    recovery_scale = max(0.0, elapsed / self.tof_recovery_duration)
-                    linear *= recovery_scale
-                    angular *= recovery_scale
+        if self.safety_stop_active():
+            linear = 0.0
+            angular = 0.0
+        elif self.safety_recovery_start is not None:
+            elapsed = (rospy.Time.now() - self.safety_recovery_start).to_sec()
+            if self.safety_recovery_duration <= 0.0 or elapsed >= self.safety_recovery_duration:
+                self.safety_recovery_start = None
+            else:
+                recovery_scale = max(0.0, elapsed / self.safety_recovery_duration)
+                linear *= recovery_scale
+                angular *= recovery_scale
         msg = Twist()
         msg.linear.x = linear
         msg.angular.z = angular
