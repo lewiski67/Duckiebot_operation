@@ -33,7 +33,7 @@ class LineFollower:
         self.last_error = 0.0
         self.last_angular_speed = 0.0
         self.lost_linear_speed = 0.10
-        self.lost_angular_decay = 0.5
+        self.lost_angular_decay = 0.6
         self.lost_angular_limit = 0.4
         self.last_time = rospy.Time.now()
 
@@ -48,7 +48,7 @@ class LineFollower:
         self.button_l1 = 4
         self.button_r1 = 5
 
-        self.h_row_ratio = 0.76
+        self.h_row_ratio = 0.65
         self.stop_in_fuel = False
         
         
@@ -263,8 +263,9 @@ class LineFollower:
 
         # Update target color logic
         if self.red_mode_active:
-            red_mask = self.detector.get_mask(bgr, self.alt_color)
-            if np.sum(red_mask) > 2000:
+            alt_mask = self.detector.get_mask(bgr, self.alt_color)
+            tracking_y = int(alt_mask.shape[0] * self.h_row_ratio)
+            if np.count_nonzero(alt_mask[tracking_y, :]) >= 8:
                 self.target_color = self.alt_color
                 self.red_line_last_seen = rospy.Time.now()
             else:
@@ -280,6 +281,14 @@ class LineFollower:
         y = int(h * self.h_row_ratio)
         line_row = mask[y, :]
         indices = np.where(line_row > 0)[0]
+        if len(indices) > 0:
+            segments = np.split(indices, np.where(np.diff(indices) > 1)[0] + 1)
+            valid_segments = [segment for segment in segments if len(segment) >= 8]
+            indices = (
+                np.concatenate(valid_segments)
+                if valid_segments
+                else np.array([], dtype=indices.dtype)
+            )
 
         if len(indices) == 0:
             if not self.lost_detect:
@@ -287,6 +296,9 @@ class LineFollower:
             self.lost_detect = True
             if self.in_fuel_zone:
                 self.publish_twist(0.0, 0.0)  # Stop in fuel zone if line is lost
+            else:
+                self.last_angular_speed *= self.lost_angular_decay
+                self.publish_twist(self.speed, self.last_angular_speed)
             return
         self.lost_detect = False
         self.lost_since = None
@@ -299,7 +311,7 @@ class LineFollower:
         derror = (error - self.last_error) / dt if dt > 0 else 0.0
 
         angular_speed = -self.kp * error - self.kd * derror
-        angular_speed = np.clip(angular_speed, -0.8, 0.8)
+        angular_speed = np.clip(angular_speed, -1.5, 1.5)
 
         self.last_error = error
         self.last_angular_speed = angular_speed

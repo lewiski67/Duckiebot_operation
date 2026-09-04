@@ -11,6 +11,7 @@
   <arg name="tof_release_distance" default="0.25" />
   <arg name="tof_recovery_duration" default="1.0" />
   <arg name="tof_mount_offset" default="0.0" />
+  <arg name="use_apriltag_stop" default="true" />
   <group ns="$(arg robot_name)">
   <include file="$(find vpa_robot_interface)/launch/vpa_camera.launch" />
   <!-- Start motor driver node -->
@@ -31,4 +32,7 @@
   </node>
   <include file="$(find vpa_robot_interface)/launch/vpa_tof.launch" if="$(arg use_tof)" />
   </group>
+  <include file="$(find vpa_robot_perception)/launch/apriltag_stop.launch" if="$(arg use_apriltag_stop)">
+    <arg name="robot_name" value="$(arg robot_name)" />
+  </include>
 </launch>
